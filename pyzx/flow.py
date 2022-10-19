@@ -1,6 +1,8 @@
 from .graph.base import BaseGraph, VT, ET
-from typing import Literal, Tuple, List, Dict, Set
-from .utils import VertexType, EdgeType
+from typing import Literal, Tuple, Dict, Set, Optional
+from .utils import VertexType
+from .extract import bi_adj
+from .linalg import Mat2, CNOTMaker
 
 class FlowType:
     Type = Literal[0,1,2,3]
@@ -12,8 +14,8 @@ class FlowType:
 Flow = (Dict[VT, Set[VT]], Dict[VT,int])
 
 """
-Function for identifying causal flow in a graph-like ZX-Diagram
-Nearly identical to tket version, but with reversed ordering and bugfix
+Function for calculating the maximally delayed causal flow in a graph-like ZX-Diagram
+Nearly identical to tket version, but with reversed ordering and a minor bugfix
 Algorithm is taken from https://arxiv.org/pdf/0709.2670.pdf
 """
 def identify_causal_flow(g: BaseGraph[VT,ET]) -> Flow:
@@ -77,9 +79,82 @@ def identify_causal_flow(g: BaseGraph[VT,ET]) -> Flow:
     if len(solved) != g.num_vertices():
         return None
     
-    # reverse ordering of vertices
-    max_depth = res[1][max(res[1], key=res[1].get)]
-    inv_depth = dict()
-    for k,v in res[1].items():
-        inv_depth[k] = max_depth-v
+    inv_depth = inverse_depth(res[1])
     return (res[0],inv_depth)
+
+
+"""Compute the maximally delayed gflow of a diagram in graph-like form where every spider is measured in XY plane.
+
+Based on algorithm by Perdrix and Mhalla.
+See dx.doi.org/10.1007/978-3-540-70575-8_70
+"""
+def identify_xy_gflow(g: BaseGraph[VT, ET]) -> Flow:
+
+    res: Flow = (dict(),dict())
+
+    inputs: Set[VT] = set(g.inputs())
+    processed: Set[VT] = set(g.outputs()) | g.grounds()
+    vertices: Set[VT] = set(g.vertices())
+    pattern_inputs: Set[VT] = set()
+    for inp in inputs:
+        if g.type(inp) == VertexType.BOUNDARY:
+            pattern_inputs |= set(g.neighbors(inp))
+        else:
+            pattern_inputs.add(inp)
+    k: int = 1
+
+    for v in processed:
+        res[1][v] = 0
+
+    while True:
+        correct = set()
+        processed_prime = [v for v in processed.difference(pattern_inputs) if any(w not in processed for w in g.neighbors(v))]
+        candidates = [v for v in vertices.difference(processed) if any(w in processed_prime for w in g.neighbors(v))]
+
+        zerovec = Mat2([[0] for _ in range(len(candidates))])
+        m = bi_adj(g, processed_prime, candidates)
+        cnot_maker = CNOTMaker()
+        m.gauss(x=cnot_maker, full_reduce=True)
+
+        for u in candidates:
+            vu = zerovec.copy()
+            vu.data[candidates.index(u)] = [1]
+            x = get_gauss_solution(m, vu, cnot_maker.cnots)
+            if x:
+                correct.add(u)
+                res[0][u] = {processed_prime[i] for i in range(x.rows()) if x.data[i][0]}
+                res[1][u] = k
+
+        if not correct:
+            if not candidates:
+                inv_depth = inverse_depth(res[1])
+                return (res[0], inv_depth)
+            return None
+        else:
+            processed.update(correct)
+            k += 1
+
+"""helper function for solving M * x = b if additions (cnots) for getting M in echelon form are already calculated"""
+def get_gauss_solution(gauss: Mat2, vec: Mat2, cnots: CNOTMaker):
+    for cnot in cnots:
+        vec.row_add(cnot.target,cnot.control)
+    x = Mat2.zeros(gauss.cols(),1)
+    for i,row in enumerate(gauss.data):
+        got_pivot = False
+        for j,v in enumerate(row):
+            if v != 0:
+                got_pivot = True
+                x.data[j][0] = vec.data[i][0]
+                break
+        if not got_pivot and vec.data[i][0] != 0:
+            return None
+    return x
+
+"""helper function for inversing the depth dictionary of the flow algorithms"""
+def inverse_depth(depth: Dict) -> Dict:
+    # reverse ordering of vertices
+    max_depth = depth[max(depth, key=depth.get)]
+    inv_depth = dict()
+    for k,v in depth.items():
+        inv_depth[k] = max_depth-v
+    return inv_depth
