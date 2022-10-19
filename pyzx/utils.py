@@ -137,3 +137,13 @@ except:
         settings.mode = "browser"
     except:
         settings.mode = "shell"
+
+class MeasurementType:
+    """Measurement Type of a vertex in a graph-like diagram"""
+    Type = Literal[0,1,2,3,4,5]
+    XY: Final = 0
+    XZ: Final = 1
+    YZ: Final = 2
+    X: Final = 3
+    Y: Final = 4
+    Z: Final = 5

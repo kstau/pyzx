@@ -422,16 +422,16 @@ def to_graph_like(g):
             # every neighbor is another boundary or an H-Box
             assert(g.type(n) in [VertexType.BOUNDARY, VertexType.H_BOX])
             if g.type(n) == VertexType.BOUNDARY:
-                z1 = g.add_vertex(ty=zx.VertexType.Z)
-                z2 = g.add_vertex(ty=zx.VertexType.Z)
-                z3 = g.add_vertex(ty=zx.VertexType.Z)
+                z1 = g.add_vertex(ty=VertexType.Z)
+                z2 = g.add_vertex(ty=VertexType.Z)
+                z3 = g.add_vertex(ty=VertexType.Z)
                 g.remove_edge(g.edge(v, n))
                 g.add_edge(g.edge(v, z1), edgetype=EdgeType.SIMPLE)
                 g.add_edge(g.edge(z1, z2), edgetype=EdgeType.HADAMARD)
                 g.add_edge(g.edge(z2, z3), edgetype=EdgeType.HADAMARD)
                 g.add_edge(g.edge(z3, n), edgetype=EdgeType.SIMPLE)
             else: # g.type(n) == VertexType.H_BOX
-                z = g.add_vertex(ty=zx.VertexType.Z)
+                z = g.add_vertex(ty=VertexType.Z)
                 g.remove_edge(g.edge(v, n))
                 g.add_edge(g.edge(v, z), edgetype=EdgeType.SIMPLE)
                 g.add_edge(g.edge(z, n), edgetype=EdgeType.SIMPLE)
@@ -447,8 +447,8 @@ def to_graph_like(g):
 
         # add dummy spiders for all but one
         for b in boundary_ns[:-1]:
-            z1 = g.add_vertex(ty=zx.VertexType.Z)
-            z2 = g.add_vertex(ty=zx.VertexType.Z)
+            z1 = g.add_vertex(ty=VertexType.Z)
+            z2 = g.add_vertex(ty=VertexType.Z)
 
             g.remove_edge(g.edge(v, b))
             g.add_edge(g.edge(z1, z2), edgetype=EdgeType.HADAMARD)
