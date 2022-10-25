@@ -117,8 +117,6 @@ def identify_xy_gflow(g: BaseGraph[VT, ET]) -> Flow:
         m = bi_adj(g, processed_prime, candidates)
         cnot_maker = CNOTMaker()
         m.gauss(x=cnot_maker, full_reduce=True)
-        import pdb
-        pdb.set_trace()
 
         for u in candidates:
             vu = zerovec.copy()
@@ -131,6 +129,8 @@ def identify_xy_gflow(g: BaseGraph[VT, ET]) -> Flow:
 
         if not correct:
             if not candidates:
+                if len(processed) != g.num_vertices():
+                    return None
                 inv_depth = inverse_depth(res[1])
                 return (res[0], inv_depth)
             return None
@@ -184,8 +184,7 @@ def identify_gflow(g: GraphMBQC) -> Flow:
         m = bi_adj(g, processed_prime, candidates)
         cnot_maker = CNOTMaker()
         m.gauss(x=cnot_maker, full_reduce=True)
-        # print(processed_prime)
-        # print(candidates)
+
         for u in candidates:
             vu = zerovec.copy()
             mtype = g.mtype(u)
@@ -194,13 +193,11 @@ def identify_gflow(g: GraphMBQC) -> Flow:
             else:
                 vu = Mat2([[1] if candidates[i] in g.neighbors(u) else [0] for i in range(len(candidates))])
                 if mtype == MeasurementType.XZ:
-                    vu[candidates.index(u)] = [1] if vu[candidates.index(u)] == 0 else [0]
+                    vu.data[candidates.index(u)] = [1] if vu.data[candidates.index(u)] == 0 else [0]
 
-            # if mtype != MeasurementType.XY:
-            #     import pdb
-            #     pdb.set_trace()
+
             x = get_gauss_solution(m, vu, cnot_maker.cnots)
-            # print(u, x)
+
             if x:
                 correct.add(u)
                 res[0][u] = {processed_prime[i] for i in range(x.rows()) if x.data[i][0]}
@@ -216,3 +213,48 @@ def identify_gflow(g: GraphMBQC) -> Flow:
         else:
             processed.update(correct)
             depth += 1
+
+## Testing purposes
+
+def get_odd_neighbourhood(g: BaseGraph[VT,ET], vertex_set):
+  all_neighbors = set()
+  for vertex in vertex_set:
+    all_neighbors.update(set(g.neighbors(vertex)))
+  odd_neighbors = []
+  for neighbor in all_neighbors:
+    if len(set(g.neighbors(neighbor)).intersection(vertex_set)) % 2 == 1:
+      odd_neighbors.append(neighbor)
+  return odd_neighbors
+
+def check_gflow_condition1(g: BaseGraph[VT,ET], gflow: Flow):
+  for v in set(g.vertices()).difference(set(g.outputs())):
+    for w in gflow[0][v]:
+      if v!=w and gflow[1][v] > gflow[1][w]:
+        print("gflow violates condition 1 because vertex: ",v," has higher or equal ordering than vertex ",w," which is in the correction set of vertex ",v)
+        return False
+  return True
+
+def check_gflow_condition2(g: BaseGraph[VT,ET], gflow: Flow):
+  for v in set(g.vertices()).difference(set(g.outputs())):
+    for w in get_odd_neighbourhood(g,gflow[0][v]):
+      if v!=w and gflow[1][v] > gflow[1][w]:
+        print("gflow violates condition 2 because vertex: ",v," has higher or equal ordering than vertex ",w," which is in the odd neighborhood of the correction set of vertex ",v)
+        return False
+  return True
+
+def check_gflow_condition3(g: BaseGraph[VT,ET], gflow: Flow):
+    for v in set(g.vertices()).difference(set(g.outputs())):
+        odd_n = get_odd_neighbourhood(g,gflow[0][v])
+        if g.mtype(v) == MeasurementType.XY:
+            if v in gflow[0][v] or not v in odd_n:
+                print("gflow violates condition 3 for XY measured vertex ",v)
+                return False
+        elif g.mtype(v) == MeasurementType.XZ:
+            if not v in gflow[0][v] or not v in odd_n:
+                print("gflow violates condition 3 for XZ measured vertex ",v)
+                return False
+        else:
+            if not v in gflow[0][v] or v in odd_n:
+                print("gflow violates condition 3 for YZ measured vertex ",v)
+                return False
+    return True
