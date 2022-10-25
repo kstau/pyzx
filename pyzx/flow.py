@@ -1,6 +1,7 @@
 from .graph.base import BaseGraph, VT, ET
+from .graph.graph_mbqc import GraphMBQC
 from typing import Literal, Tuple, Dict, Set, Optional
-from .utils import VertexType
+from .utils import MeasurementType, VertexType
 from .extract import bi_adj
 from .linalg import Mat2, CNOTMaker
 
@@ -11,6 +12,7 @@ class FlowType:
     GFLOW = 2
     PAULIFLOW = 3
 
+"""Generic Flow type = Tuple of correction sets and vertex depth"""
 Flow = (Dict[VT, Set[VT]], Dict[VT,int])
 
 """
@@ -115,6 +117,8 @@ def identify_xy_gflow(g: BaseGraph[VT, ET]) -> Flow:
         m = bi_adj(g, processed_prime, candidates)
         cnot_maker = CNOTMaker()
         m.gauss(x=cnot_maker, full_reduce=True)
+        import pdb
+        pdb.set_trace()
 
         for u in candidates:
             vu = zerovec.copy()
@@ -158,3 +162,57 @@ def inverse_depth(depth: Dict) -> Dict:
     for k,v in depth.items():
         inv_depth[k] = max_depth-v
     return inv_depth
+
+# {{0,1,0,1,0,1},{1,0,1,0,1,0},{0,1,0,1,0,1},{1,0,1,0,1,0},{0,1,0,1,0,1},{1,0,1,0,1,0}}*{{x1},{x2},{1},{x4},{x5},{x6}}={{0},{0},{0},{0},{0},{0}}
+
+def identify_gflow(g: GraphMBQC) -> Flow:
+    res: Flow = (dict(), dict())
+    processed = set(g.outputs())
+    vertices: Set[VT] = set(g.vertices())
+    inputs: Set[VT] = set(g.inputs())
+    depth: int = 1
+    
+    for v in processed:
+        res[1][v] = 0
+    
+    while True:
+        correct = set()
+        processed_prime = [v for v in processed.difference(inputs) if any(w not in processed for w in g.neighbors(v))]
+        candidates = [v for v in vertices.difference(processed) if any(w in processed_prime for w in g.neighbors(v))]
+
+        zerovec = Mat2([[0] for _ in range(len(candidates))])
+        m = bi_adj(g, processed_prime, candidates)
+        cnot_maker = CNOTMaker()
+        m.gauss(x=cnot_maker, full_reduce=True)
+        # print(processed_prime)
+        # print(candidates)
+        for u in candidates:
+            vu = zerovec.copy()
+            mtype = g.mtype(u)
+            if mtype == MeasurementType.XY:
+                vu.data[candidates.index(u)] = [1]
+            else:
+                vu = Mat2([[1] if candidates[i] in g.neighbors(u) else [0] for i in range(len(candidates))])
+                if mtype == MeasurementType.XZ:
+                    vu[candidates.index(u)] = [1] if vu[candidates.index(u)] == 0 else [0]
+
+            # if mtype != MeasurementType.XY:
+            #     import pdb
+            #     pdb.set_trace()
+            x = get_gauss_solution(m, vu, cnot_maker.cnots)
+            # print(u, x)
+            if x:
+                correct.add(u)
+                res[0][u] = {processed_prime[i] for i in range(x.rows()) if x.data[i][0]}
+                if mtype != MeasurementType.XY:
+                    res[0][u].add(u)
+                res[1][u] = depth
+
+        if not correct:
+            if not candidates:
+                inv_depth = inverse_depth(res[1])
+                return (res[0], inv_depth)
+            return None
+        else:
+            processed.update(correct)
+            depth += 1

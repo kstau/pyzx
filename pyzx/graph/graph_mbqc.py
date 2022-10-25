@@ -1,11 +1,12 @@
 from fractions import Fraction
+from .base import VT, ET
 from typing import Tuple, Dict, Set, Any
 
 from .graph_s import GraphS
 
 from ..utils import MeasurementType
 
-class GraphMBQC(GraphS[int,Tuple[int,int]]):
+class GraphMBQC(GraphS):
     backend = 'mbqc'
 
     def __init__(self):

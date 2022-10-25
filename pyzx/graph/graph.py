@@ -16,6 +16,8 @@
 
 from typing import Optional
 
+from pyzx.graph.graph_mbqc import GraphMBQC
+
 from .base import BaseGraph
 from .graph_s import GraphS
 
@@ -24,7 +26,7 @@ try:
 except ImportError:
 	quizx = None
 
-backends = { 'simple': True, 'quizx-vec': False if quizx is None else True }
+backends = { 'simple': True, 'quizx-vec': False if quizx is None else True, 'mbqc': True }
 
 def Graph(backend:Optional[str]=None) -> BaseGraph:
 	"""Returns an instance of an implementation of :class:`~pyzx.graph.base.BaseGraph`. 
@@ -43,6 +45,7 @@ def Graph(backend:Optional[str]=None) -> BaseGraph:
 	if backend not in backends:
 		raise KeyError("Unavailable backend '{}'".format(backend))
 	if backend == 'simple': return GraphS()
+	if backend == 'mbqc': return GraphMBQC()
 	if backend == 'graph_tool': 
 		return GraphGT()
 	if backend == 'igraph': return GraphIG()
