@@ -168,7 +168,7 @@ def inverse_depth(depth: Dict) -> Dict:
 def identify_gflow(g: GraphMBQC) -> Flow:
     res: Flow = (dict(), dict())
     processed = set(g.outputs())
-    vertices: Set[VT] = set(g.vertices())
+    vertices: Set[VT] = set(g.vertices()).difference(set(g.effects()))
     inputs: Set[VT] = set(g.inputs())
     depth: int = 1
     
@@ -219,15 +219,15 @@ def identify_gflow(g: GraphMBQC) -> Flow:
 def get_odd_neighbourhood(g: BaseGraph[VT,ET], vertex_set):
   all_neighbors = set()
   for vertex in vertex_set:
-    all_neighbors.update(set(g.neighbors(vertex)))
+    all_neighbors.update(set(g.neighbors(vertex)).difference(g.effects()))
   odd_neighbors = []
   for neighbor in all_neighbors:
-    if len(set(g.neighbors(neighbor)).intersection(vertex_set)) % 2 == 1:
+    if len(set(g.neighbors(neighbor)).difference(g.effects()).intersection(vertex_set)) % 2 == 1:
       odd_neighbors.append(neighbor)
   return odd_neighbors
 
 def check_gflow_condition1(g: BaseGraph[VT,ET], gflow: Flow):
-  for v in set(g.vertices()).difference(set(g.outputs())):
+  for v in set(g.vertices()).difference(set(g.outputs())).difference(g.effects()):
     for w in gflow[0][v]:
       if v!=w and gflow[1][v] > gflow[1][w]:
         print("gflow violates condition 1 because vertex: ",v," has higher or equal ordering than vertex ",w," which is in the correction set of vertex ",v)
@@ -235,7 +235,7 @@ def check_gflow_condition1(g: BaseGraph[VT,ET], gflow: Flow):
   return True
 
 def check_gflow_condition2(g: BaseGraph[VT,ET], gflow: Flow):
-  for v in set(g.vertices()).difference(set(g.outputs())):
+  for v in set(g.vertices()).difference(set(g.outputs())).difference(g.effects()):
     for w in get_odd_neighbourhood(g,gflow[0][v]):
       if v!=w and gflow[1][v] > gflow[1][w]:
         print("gflow violates condition 2 because vertex: ",v," has higher or equal ordering than vertex ",w," which is in the odd neighborhood of the correction set of vertex ",v)
@@ -243,7 +243,7 @@ def check_gflow_condition2(g: BaseGraph[VT,ET], gflow: Flow):
   return True
 
 def check_gflow_condition3(g: BaseGraph[VT,ET], gflow: Flow):
-    for v in set(g.vertices()).difference(set(g.outputs())):
+    for v in set(g.vertices()).difference(set(g.outputs())).difference(g.effects()):
         odd_n = get_odd_neighbourhood(g,gflow[0][v])
         if g.mtype(v) == MeasurementType.XY:
             if v in gflow[0][v] or not v in odd_n:

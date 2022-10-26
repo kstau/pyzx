@@ -139,7 +139,7 @@ except:
         settings.mode = "shell"
 
 class MeasurementType:
-    """Measurement Type of a vertex in a graph-like diagram"""
+    """Measurement Type of a Z spider in a graph-like diagram"""
     Type = Literal[0,1,2,3,4,5]
     XY: Final = 0
     XZ: Final = 1
@@ -147,3 +147,4 @@ class MeasurementType:
     X: Final = 3
     Y: Final = 4
     Z: Final = 5
+    EFFECT: Final = 6 #spider does not have a measurement plane but is part of an XZ or YZ measurement, i.e. the upper part of phase gadget

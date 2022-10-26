@@ -21,3 +21,8 @@ class GraphMBQC(GraphS):
 
     def mtypes(self):
         return self.measurements
+
+    def effects(self):
+        return [v for v,m in self.measurements.items() if m == MeasurementType.EFFECT]
+
+    
