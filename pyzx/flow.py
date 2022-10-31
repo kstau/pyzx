@@ -1,6 +1,6 @@
 from .graph.base import BaseGraph, VT, ET
 from .graph.graph_mbqc import GraphMBQC
-from typing import Literal, Tuple, Dict, Set, Optional
+from typing import Literal, Tuple, Dict, Set, Optional, List
 from .utils import MeasurementType, VertexType
 from .extract import bi_adj
 from .linalg import Mat2, CNOTMaker
@@ -213,6 +213,126 @@ def identify_gflow(g: GraphMBQC) -> Flow:
         else:
             processed.update(correct)
             depth += 1
+
+def identify_pauli_flow(g: GraphMBQC):
+    res: Flow = (dict(), dict())
+    solved = []
+    correctors = []
+    inputs = []
+    for input in g.inputs():
+        n = list(g.neighbors(input))[0]
+        inputs.append(n)
+
+    for output in g.outputs():
+        n = list(g.neighbors(output))[0]
+        solved.append(output)
+        if not n in g.inputs():
+            solved.append(n)
+            res[0][n] = set()
+            res[1][n] = 0
+    
+    for v in g.non_outputs():
+        if not v in g.inputs() and g.mtype(v) in [MeasurementType.X, MeasurementType.Y]:
+            correctors.append(v)
+
+    depth = 1
+
+    while True:
+        new_corrections = solve_pauli_correctors(g, solved, correctors)
+        if not new_corrections:
+            break
+        for v,c_s in new_corrections.items():
+            res[0][v] = c_s
+            res[1][v] = depth
+            solved.append(v)
+            if not v in inputs:
+                correctors.append(v)
+        depth += 1
+    
+    if len(solved) + len(inputs) != g.vertices():
+        return False
+    return res 
+
+
+
+def solve_pauli_correctors(g: GraphMBQC, solved: list[int], correctors: list[int]):
+    to_solve = []
+    unsolved_ys = []
+    preserve = []
+    for v in g.non_inputs():
+        if not v in solved:
+            to_solve.append(v)
+            if g.mtype(v) == MeasurementType.Y:
+                unsolved_ys.append(v)
+            if g.mtype(v) != MeasurementType.Z:
+                preserve.append(v)
+    
+    mat = Mat2.zeros(len(preserve) + len(unsolved_ys), len(correctors) + len(to_solve))
+
+    # fill lhs, aka. M A,u
+    for corrector in correctors:
+        for n in g.neighbors(corrector):
+            if n in preserve:
+                mat.data[preserve.index(n)][correctors.index(corrector)] = 1
+            else:
+                if n in unsolved_ys:
+                    mat.data[len(preserve) + unsolved_ys.index(n)][correctors.index(corrector)] = 1
+    
+    for unsolved_y in unsolved_ys:
+        if unsolved_y in correctors:
+            mat.data[len(preserve) + unsolved_ys.index(unsolved_y)][correctors.index(unsolved_y)] = 1
+    
+    #Fill rhs, aka. S lambda
+    for candidate in to_solve:
+        mtype = g.mtype(candidate)
+        if mtype in [MeasurementType.XY, MeasurementType.X, MeasurementType.XZ]:
+            mat.data[preserve.index(candidate)][len(correctors) + to_solve.index(candidate)] = 1
+        if mtype in [MeasurementType.XZ, MeasurementType.YZ, MeasurementType.Z]:
+            for n in g.neighbors(candidate):
+                if n in preserve:
+                    mat.data[preserve.index(n)][len(correctors) + to_solve.index(candidate)] = 1
+                else:
+                    if n in unsolved_ys:
+                        mat.data[len(preserve) + unsolved_ys.index(n)][len(correctors) + to_solve.index(candidate)] = 1
+        if mtype == MeasurementType.Y:
+            mat.data[len(preserve) + unsolved_ys.index(candidate)][len(correctors) + to_solve.index(candidate)] = 1
+
+    # gaussian elimination
+    sub_matrix = Mat2([[mat.data[i][j] for j in range(len(correctors))] for i in range(len(preserve) + len(unsolved_ys))])
+    cnot_maker = CNOTMaker()
+    sub_matrix.gauss(x=cnot_maker, full_reduce=True)
+
+    for cnot in cnot_maker.cnots:
+        mat.row_add(cnot.target,cnot.control)
+    
+    #Back substitution
+    row_correctors = dict()
+    for i in range(sub_matrix.rows()):
+        for j in range(sub_matrix.cols()):
+            if j >= len(mat.data[i]):
+                import pdb
+                pdb.set_trace()
+            if mat.data[i][j]:
+                row_correctors[i] = j
+    
+    solved_flow = dict()
+    
+    for i in range(len(to_solve)):
+        fail = False
+        c_i = set()
+        for j in range(len(preserve) + len(unsolved_ys)):
+            if mat.data[j][len(correctors) + i]:
+                if j in row_correctors.keys():
+                    c_i.add(row_correctors[j])
+                else:
+                    fail = True
+        if not fail:
+            v = to_solve[i]
+            if g.mtype(v) in [MeasurementType.XZ, MeasurementType.YZ, MeasurementType.Z]:
+                c_i.add(v)
+            solved_flow[v] = c_i
+    print(solved_flow)    
+    return solved_flow
 
 ## Testing purposes
 

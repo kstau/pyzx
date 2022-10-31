@@ -25,4 +25,8 @@ class GraphMBQC(GraphS):
     def effects(self):
         return [v for v,m in self.measurements.items() if m == MeasurementType.EFFECT]
 
-    
+    def non_inputs(self):
+        return set(self.vertices()).difference(set(self.inputs()))
+
+    def non_outputs(self):
+        return set(self.vertices()).difference(set(self.outputs()))
