@@ -5,13 +5,6 @@ from .utils import MeasurementType, VertexType
 from .extract import bi_adj
 from .linalg import Mat2, CNOTMaker
 
-class FlowType:
-    Type = Literal[0,1,2,3]
-    CAUSAL = 0
-    XYGFLOW = 1
-    GFLOW = 2
-    PAULIFLOW = 3
-
 """Generic Flow type = Tuple of correction sets and vertex depth"""
 Flow = (Dict[VT, Set[VT]], Dict[VT,int])
 
@@ -163,7 +156,6 @@ def inverse_depth(depth: Dict) -> Dict:
         inv_depth[k] = max_depth-v
     return inv_depth
 
-# {{0,1,0,1,0,1},{1,0,1,0,1,0},{0,1,0,1,0,1},{1,0,1,0,1,0},{0,1,0,1,0,1},{1,0,1,0,1,0}}*{{x1},{x2},{1},{x4},{x5},{x6}}={{0},{0},{0},{0},{0},{0}}
 
 def identify_gflow(g: GraphMBQC) -> Flow:
     res: Flow = (dict(), dict())
@@ -195,7 +187,6 @@ def identify_gflow(g: GraphMBQC) -> Flow:
                 if mtype == MeasurementType.XZ:
                     vu.data[candidates.index(u)] = [1] if vu.data[candidates.index(u)] == 0 else [0]
 
-
             x = get_gauss_solution(m, vu, cnot_maker.cnots)
 
             if x:
@@ -224,8 +215,8 @@ def identify_pauli_flow(g: GraphMBQC):
         inputs.append(n)
 
     for output in g.outputs():
-        n = list(g.neighbors(output))[0]
         solved.append(output)
+        n = list(g.neighbors(output))[0]
         if not n in g.inputs():
             solved.append(n)
             res[0][n] = set()
@@ -248,8 +239,7 @@ def identify_pauli_flow(g: GraphMBQC):
             if not v in inputs:
                 correctors.append(v)
         depth += 1
-    
-    if len(solved) + len(inputs) != g.vertices():
+    if len(solved) + len(inputs) != len(g.vertices()):
         return False
     return res 
 
@@ -259,12 +249,13 @@ def solve_pauli_correctors(g: GraphMBQC, solved: list[int], correctors: list[int
     to_solve = []
     unsolved_ys = []
     preserve = []
+
     for v in g.non_inputs():
         if not v in solved:
             to_solve.append(v)
             if g.mtype(v) == MeasurementType.Y:
                 unsolved_ys.append(v)
-            if g.mtype(v) != MeasurementType.Z:
+            elif g.mtype(v) != MeasurementType.Z:
                 preserve.append(v)
     
     mat = Mat2.zeros(len(preserve) + len(unsolved_ys), len(correctors) + len(to_solve))
@@ -313,7 +304,7 @@ def solve_pauli_correctors(g: GraphMBQC, solved: list[int], correctors: list[int
                 import pdb
                 pdb.set_trace()
             if mat.data[i][j]:
-                row_correctors[i] = j
+                row_correctors[i] = correctors[j]
     
     solved_flow = dict()
     
@@ -326,12 +317,13 @@ def solve_pauli_correctors(g: GraphMBQC, solved: list[int], correctors: list[int
                     c_i.add(row_correctors[j])
                 else:
                     fail = True
+                    break
         if not fail:
             v = to_solve[i]
             if g.mtype(v) in [MeasurementType.XZ, MeasurementType.YZ, MeasurementType.Z]:
                 c_i.add(v)
             solved_flow[v] = c_i
-    print(solved_flow)    
+
     return solved_flow
 
 ## Testing purposes
