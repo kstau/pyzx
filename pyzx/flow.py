@@ -122,7 +122,7 @@ def identify_xy_gflow(g: BaseGraph[VT, ET]) -> Flow:
 
         if not correct:
             if not candidates:
-                if len(processed) != g.num_vertices():
+                if len(processed) + len(inputs) != g.num_vertices():
                     return None
                 inv_depth = inverse_depth(res[1])
                 return (res[0], inv_depth)
