@@ -1,6 +1,6 @@
 from .graph.base import BaseGraph, VT, ET
 from .graph.graph_mbqc import GraphMBQC
-from typing import Literal, Tuple, Dict, Set, Optional, List
+from typing import Dict, Set
 from .utils import MeasurementType, VertexType
 from .extract import bi_adj
 from .linalg import Mat2, CNOTMaker
@@ -156,7 +156,7 @@ def inverse_depth(depth: Dict) -> Dict:
         inv_depth[k] = max_depth-v
     return inv_depth
 
-
+"""Compute maximally delayed gflow of a graph-like diagram as in https://arxiv.org/pdf/2003.01664.pdf"""
 def identify_gflow(g: GraphMBQC) -> Flow:
     res: Flow = (dict(), dict())
     processed = set(g.outputs())
@@ -205,7 +205,8 @@ def identify_gflow(g: GraphMBQC) -> Flow:
             processed.update(correct)
             depth += 1
 
-def identify_pauli_flow(g: GraphMBQC):
+"""Compute maximally delayed pauli flow as in https://arxiv.org/pdf/2109.05654.pdf"""
+def identify_pauli_flow(g: GraphMBQC) -> Flow:
     res: Flow = (dict(), dict())
     solved = []
     correctors = []
@@ -244,7 +245,7 @@ def identify_pauli_flow(g: GraphMBQC):
     return res 
 
 
-
+"""Helper function for pauli flow identification"""
 def solve_pauli_correctors(g: GraphMBQC, solved: list[int], correctors: list[int]):
     to_solve = []
     unsolved_ys = []
@@ -325,7 +326,7 @@ def solve_pauli_correctors(g: GraphMBQC, solved: list[int], correctors: list[int
             solved_flow[v] = c_i
 
     return solved_flow
-
+    
 ## Testing purposes
 
 def get_odd_neighbourhood(g: BaseGraph[VT,ET], vertex_set):
