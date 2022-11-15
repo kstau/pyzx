@@ -162,7 +162,7 @@ define('zx_viewer', ['d3'], function(d3) {
         if (show_labels) {
             node.append("text")
                 .attr("y", -0.7 * node_size - 8)
-                .text(function (d) { return d.name; })
+                .text(function (d) { return d.name + ' ' + d.mtype; })
                 .attr("text-anchor", "middle")
                 .attr("font-size", "10px")
                 .attr("font-family", "monospace")

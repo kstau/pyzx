@@ -157,7 +157,7 @@ function showGraph(tag, graph, width, height, scale, node_size, auto_hbox, show_
     if (show_labels) {
         node.append("text")
             .attr("y", -0.7 * node_size - 8)
-            .text(function (d) { return d.name; })
+            .text(function (d) { return d.name + ' ' + d.mtype; })
             .attr("text-anchor", "middle")
             .attr("font-size", "10px")
             .attr("font-family", "monospace")

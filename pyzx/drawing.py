@@ -34,7 +34,7 @@ try:
 except:
     plt = None
 
-from .utils import settings, phase_to_s, EdgeType, VertexType, FloatInt
+from .utils import settings, phase_to_s, EdgeType, VertexType, FloatInt, mtype_to_s
 from .graph.base import BaseGraph, VT, ET
 from .circuit import Circuit
 
@@ -307,6 +307,7 @@ def draw_d3(
               'y': (g.qubit(v)-minqub + 2) * scale,
               't': g.type(v),
               'phase': phase_to_s(g.phase(v), g.type(v)),
+              'mtype': mtype_to_s(g, v),
               'ground': g.is_ground(v),
               'vdata': [(key, g.vdata(v, key))
                   for key in vdata if g.vdata(v, key, None) is not None],

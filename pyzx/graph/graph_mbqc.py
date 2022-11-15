@@ -14,10 +14,22 @@ class GraphMBQC(GraphS):
         self.measurements: Dict[int, MeasurementType.Type] = dict()
     
     def mtype(self, vertex):
-        return self.measurements[vertex]
+        if vertex in self.measurements:
+            return self.measurements[vertex]
+        else:
+            return MeasurementType.XY #default
     
     def set_mtype(self, vertex, measurement):
         self.measurements[vertex] = measurement
+    
+    def mneighbors(self, vertex):
+        return [n for n in self.neighbors(vertex) if self.mtype(n) != MeasurementType.EFFECT]
+    
+    def effect(self, v):
+        for n in self.neighbors(v):
+            if self.mtype(n) == MeasurementType.EFFECT:
+                return n
+        return None
 
     def mtypes(self):
         return self.measurements

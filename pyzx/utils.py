@@ -148,3 +148,16 @@ class MeasurementType:
     Y: Final = 4
     Z: Final = 5
     EFFECT: Final = 6 #spider does not have a measurement plane but is part of an XZ or YZ measurement, i.e. the upper part of phase gadget
+
+def mtype_to_s(g, v):
+    if g.backend == 'mbqc':
+        return {
+            MeasurementType.XY: 'XY',
+            MeasurementType.XZ: 'XZ',
+            MeasurementType.YZ: 'YZ',
+            MeasurementType.X: 'X',
+            MeasurementType.Y: 'Y',
+            MeasurementType.Z: 'Z'
+        }.get(g.mtype(v), '')
+    else:
+        return ''
