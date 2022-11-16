@@ -1,10 +1,10 @@
 from fractions import Fraction
-from .base import VT, ET
+from .base import VT, ET, BaseGraph
 from typing import Tuple, Dict, Set, Any
 
 from .graph_s import GraphS
 
-from ..utils import MeasurementType
+from ..utils import MeasurementType, VertexType
 
 class GraphMBQC(GraphS):
     backend = 'mbqc'
@@ -23,7 +23,7 @@ class GraphMBQC(GraphS):
         self.measurements[vertex] = measurement
     
     def mneighbors(self, vertex):
-        return [n for n in self.neighbors(vertex) if self.mtype(n) != MeasurementType.EFFECT]
+        return [n for n in self.neighbors(vertex) if self.mtype(n) != MeasurementType.EFFECT and self.type(n) != VertexType.BOUNDARY]
     
     def effect(self, v):
         for n in self.neighbors(v):
@@ -42,3 +42,55 @@ class GraphMBQC(GraphS):
 
     def non_outputs(self):
         return set(self.vertices()).difference(set(self.outputs()))
+
+    def copy(self, adjoint:bool=False):
+        # g = BaseGraph.copy(self)
+        # g.measurements = self.measurements.copy()
+        # import pdb
+        # pdb.set_trace()
+        # return g
+        g = GraphMBQC()
+        g.track_phases = self.track_phases
+        g.scalar = self.scalar.copy()
+        g.merge_vdata = self.merge_vdata
+        mult:int = 1
+        if adjoint: mult = -1
+
+        #g.add_vertices(self.num_vertices())
+        ty = self.types()
+        ph = self.phases()
+        qs = self.qubits()
+        rs = self.rows()
+        maxr = self.depth()
+        mp = self.mtypes()
+        vtab = dict()
+        for v in self.vertices():
+            i = g.add_vertex(ty[v],phase=mult*ph[v])
+            if v in qs: g.set_qubit(i,qs[v])
+            if v in rs: 
+                if adjoint: g.set_row(i, maxr-rs[v])
+                else: g.set_row(i, rs[v])
+            vtab[v] = i
+            for k in self.vdata_keys(v):
+                g.set_vdata(i, k, self.vdata(v, k))
+
+            if v in mp:
+                g.set_mtype(i,mp[v])
+            
+        for v in self.grounds():
+            g.set_ground(vtab[v], True)
+
+        new_inputs = tuple(vtab[i] for i in self.inputs())
+        new_outputs = tuple(vtab[i] for i in self.outputs())
+        if not adjoint:
+            g.set_inputs(new_inputs)
+            g.set_outputs(new_outputs)
+        else:
+            g.set_inputs(new_outputs)
+            g.set_outputs(new_inputs)
+        
+        etab = {e:g.edge(vtab[self.edge_s(e)],vtab[self.edge_t(e)]) for e in self.edges()}
+        g.add_edges(etab.values())
+        for e,f in etab.items():
+            g.set_edge_type(f, self.edge_type(e))
+        return g

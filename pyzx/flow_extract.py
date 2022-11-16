@@ -1,11 +1,12 @@
 from .graph.base import BaseGraph, VT, ET
 from .graph.graph_mbqc import GraphMBQC
 from typing import Literal, Tuple, Dict, Set, Optional, List
-from .utils import MeasurementType, VertexType, EdgeType
+from .utils import MeasurementType, VertexType, EdgeType, insert_identity
 from .circuit import Circuit
 from .extract import graph_to_swaps, bi_adj, neighbors_of_frontier, extract_circuit
+from .tensor import compare_tensors
 from .linalg import CNOTMaker
-from .rules import lcomp, pivot
+from .flow_rules import lcomp, pivot
 from .drawing import draw
 
 """Extracts a circuit from graph-like diagrams with causal flow"""
@@ -211,23 +212,24 @@ def extract_from_xy_gflow(g: BaseGraph[VT, ET]) -> Circuit:
     return graph_to_swaps(g, False) + res
 
 
-def insert_identity(g, v1, v2) -> int:
-    orig_type = g.edge_type(g.edge(v1, v2))
-    if g.connected(v1, v2):
-        g.remove_edge(g.edge(v1, v2))
-    vmid = g.add_vertex(VertexType.Z,g.qubits()[v1],g.rows()[v1] -1)
-    g.add_edge((v1,vmid), EdgeType.HADAMARD)
-    if orig_type == EdgeType.HADAMARD:
-        g.add_edge((vmid,v2), EdgeType.SIMPLE)
-    else:
-        g.add_edge((vmid,v2), EdgeType.HADAMARD)
-    return vmid
-
 def extract_from_gflow(g: GraphMBQC) -> Circuit:
     res = Circuit(g.qubit_count())
     inputs = g.inputs()
     outputs = set(g.outputs())
     frontier: Dict[int,VT] = dict()
+    
+    # Transform all XZ spiders to XY spiders via local complementation
+    while True:
+        candidates = []
+        for v in g.vertices():
+            if g.mtype(v) == MeasurementType.XZ:
+                candidates.append(v)
+    
+        if not candidates:
+            break
+
+        for candidate in candidates:
+            lcomp(g, candidate)
 
     #create frontier
     for i, o in enumerate(g.outputs()):
@@ -238,8 +240,11 @@ def extract_from_gflow(g: GraphMBQC) -> Circuit:
                 res.add_gate("HAD", i)
                 g.set_edge_type(g.edge(v,o),EdgeType.SIMPLE)
 
-    # extract CZs + RZ + Hadamard until no spiders left in diagram            
+    # extract CZs + RZ + Hadamard until no spiders left in diagram
     while True:
+        # for f in frontier.values(): # hard reset because frontier spiders do not have a measurement plane
+        #     if g.mtype(f) != MeasurementType.XY:
+        #         g.set_mtype(f, MeasurementType.XY)
         #RZs
         for qubit,v in frontier.items():
             phase = g.phase(v)
@@ -255,26 +260,52 @@ def extract_from_gflow(g: GraphMBQC) -> Circuit:
                 res.add_gate("CZ", qubit, list(frontier.keys())[list(frontier.values()).index(w)])
                 print("extract CZ on ", qubit, list(frontier.keys())[list(frontier.values()).index(w)])
 
+        # draw(g, labels=True)
+
         # If we cannot proceed with H,RZ,CZ gate extractions remove Hadamard Wires via CNOT row additions using gaussian elimination
-        if all([len(g.neighbors(v)) > 2 for v in frontier.values()]):
-            
-            #Get all neighbors of frontier vertices
+        if frontier and all([len(g.neighbors(v)) > 2 for v in frontier.values()]):
+
+            # Get all neighbors of frontier vertices
             frontier_neighbors = set()
             for v in frontier.values():
                 frontier_neighbors.update(set(g.neighbors(v)).difference(outputs))
-            
-            for n in frontier_neighbors:
-                if g.mtype(n) == MeasurementType.XZ:
-                    lcomp(g, [(n,g.neighbors(n))])
-                elif g.mtype(n) == MeasurementType.YZ:
-                    pivot(g, [(n, list(set(g.neighbors(n)).intersection(set(frontier.values())))[0])])
-                    #TODO: update frontier
             
             # Compute row echelon form of adjacency matrix and save row operations as CNOTs 
             # -> because of gflow the resulting matrix has a row with only a single 1
             m = bi_adj(g, list(frontier_neighbors), frontier.values())
             cnot_maker = CNOTMaker()
             m.gauss(x=cnot_maker, full_reduce=True)
+            
+            single_one = False
+
+            for row in m.data:
+                if sum(row) == 1:
+                    single_one = True
+                    break
+            
+            if not single_one:
+                for n in frontier_neighbors:
+                    if g.mtype(n) == MeasurementType.YZ:
+
+                        frontier_vertex = list(set(g.neighbors(n)).intersection(set(frontier.values())))[0]
+                        pivot(g, n, frontier_vertex)
+
+                        e = g.effect(frontier_vertex)
+                        e_n = list(g.neighbors(e))
+                        simple_wire = g.edge_type(g.edge(e,e_n[0])) == g.edge_type(g.edge(e,e_n[1]))
+                        if not simple_wire:
+                            qubit = list(frontier)[list(frontier.values()).index(frontier_vertex)]
+                            res.add_gate("HAD", qubit)
+                        
+                        g.remove_vertex(e)
+                        g.add_edge(g.edge(e_n[0],e_n[1]),EdgeType.SIMPLE)
+
+                        # no measurements in frontier, because in original paper those are outputs
+                        # from graph-theoretical perspective we can maybe also see the extraction of the H wire as an implicit conversion from YZ to XY?
+                        g.set_mtype(frontier_vertex, MeasurementType.XY) 
+
+                        break
+                continue
 
             for cnot in cnot_maker.cnots:
                 control_qubit = list(frontier)[cnot.control]
@@ -336,7 +367,8 @@ def extract_from_gflow(g: GraphMBQC) -> Circuit:
                     frontier.pop(qubit)
                 else:
                     frontier[qubit] = v
-
+    # import pdb
+    # pdb.set_trace()
     # reverse circuit 
     res.gates = list(reversed(res.gates))
 
