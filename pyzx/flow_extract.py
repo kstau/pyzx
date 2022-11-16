@@ -242,9 +242,6 @@ def extract_from_gflow(g: GraphMBQC) -> Circuit:
 
     # extract CZs + RZ + Hadamard until no spiders left in diagram
     while True:
-        # for f in frontier.values(): # hard reset because frontier spiders do not have a measurement plane
-        #     if g.mtype(f) != MeasurementType.XY:
-        #         g.set_mtype(f, MeasurementType.XY)
         #RZs
         for qubit,v in frontier.items():
             phase = g.phase(v)
@@ -260,11 +257,11 @@ def extract_from_gflow(g: GraphMBQC) -> Circuit:
                 res.add_gate("CZ", qubit, list(frontier.keys())[list(frontier.values()).index(w)])
                 print("extract CZ on ", qubit, list(frontier.keys())[list(frontier.values()).index(w)])
 
-        # draw(g, labels=True)
+        draw(g, labels=True)
 
         # If we cannot proceed with H,RZ,CZ gate extractions remove Hadamard Wires via CNOT row additions using gaussian elimination
         if frontier and all([len(g.neighbors(v)) > 2 for v in frontier.values()]):
-
+            print("no easy vertex left")
             # Get all neighbors of frontier vertices
             frontier_neighbors = set()
             for v in frontier.values():
@@ -284,11 +281,14 @@ def extract_from_gflow(g: GraphMBQC) -> Circuit:
                     break
             
             if not single_one:
+                debug_found = False
                 for n in frontier_neighbors:
                     if g.mtype(n) == MeasurementType.YZ:
 
                         frontier_vertex = list(set(g.neighbors(n)).intersection(set(frontier.values())))[0]
                         pivot(g, n, frontier_vertex)
+                        print("pivot around ", n, frontier_vertex)
+                        debug_found = True
 
                         e = g.effect(frontier_vertex)
                         e_n = list(g.neighbors(e))
@@ -305,7 +305,14 @@ def extract_from_gflow(g: GraphMBQC) -> Circuit:
                         g.set_mtype(frontier_vertex, MeasurementType.XY) 
 
                         break
+                if not debug_found:
+                    import pdb
+                    pdb.set_trace()    
                 continue
+
+            if not cnot_maker.cnots:
+                import pdb
+                pdb.set_trace()
 
             for cnot in cnot_maker.cnots:
                 control_qubit = list(frontier)[cnot.control]
@@ -324,8 +331,9 @@ def extract_from_gflow(g: GraphMBQC) -> Circuit:
                     else:
                         # special case: neighbor of "control" spider is an input, therefore we need to insert a spider between input and control spider
                         if v in g.inputs():
-                            new_v = insert_identity(g, fcont, v) 
-                            print("insert identity between ",v, fcont)
+                            new_v = insert_identity(g, fcont, v)
+                            g.set_mtype(new_v, MeasurementType.XY)
+                            print("insert identity ",new_v," between ",v, fcont)
                             g.add_edge(g.edge(ftarg,new_v), EdgeType.HADAMARD)
                         else:
                             g.add_edge(g.edge(ftarg,v), EdgeType.HADAMARD)
