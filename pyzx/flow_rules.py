@@ -42,41 +42,53 @@ def lcomp(g: GraphMBQC, v: VT, inverse = None):
     }.get(g.mtype(v), MeasurementType.YZ))
     
     # update phases of v (and its effect) according to measurement plane
+
     if g.mtype(v) == MeasurementType.XZ:
-        # check if we can write effect on output
+        # create effect spider
         newv = None
+        # check if we can write effect on output
         for n in g.neighbors(v): 
             if n in g.outputs():
                 newv = insert_identity(g, v, n)
-                #lcomp introduces Hadamard, so we need to manually fix output wire
+                # lcomp introduces Hadamard on output wire
                 g.set_edge_type(g.edge(newv, n),toggle_edge(g.edge_type(g.edge(newv, n))))
+
                 g.set_phase(newv, g.phase(v)+Fraction(1,2) if inverse else g.phase(v)-Fraction(1,2))
                 break
-        # if not: add new effect spider
+        # if not: add effect spider
         if not newv:
             newv = g.add_vertex(VertexType.Z, -1, g.row(v), g.phase(v)+Fraction(1,2) if inverse else g.phase(v)-Fraction(1,2))
             g.add_edge(g.edge(v, newv), EdgeType.HADAMARD)
-
+            
         g.set_mtype(newv, MeasurementType.EFFECT)
+        # update phase of v
         g.set_phase(v, Fraction(1,2) if inverse else -Fraction(1,2))
 
     elif g.mtype(v) == MeasurementType.XY:
+        # merge effect spider with v
         e = g.effect(v)
         g.set_phase(v, g.phase(e)+Fraction(1,2) if inverse else g.phase(e)-Fraction(1,2))
-
-        for n in g.neighbors(e): #either 1 (v) or 2 neighbors (v+output)
+        
+        #if effect is on output wire, we need to add wire so we don't end up with an unconnected output when removing the effect spider
+        for n in g.neighbors(e): #effect spider hase either 1 (v) or 2 neighbors (v and an output)
             if n in g.outputs():
-                g.add_edge(g.edge(v,n),g.edge_type(g.edge(e, n))) # add wire so we dont end up with an unconnected output
+                g.add_edge(g.edge(v,n),g.edge_type(g.edge(e, n))) 
                 break
 
+        # remove effect spider
         g.remove_vertex(e)
-
+    
+    #YZ
     else:
+        # update effect
         e = g.effect(v)
         g.set_phase(e, g.phase(e)+Fraction(1,2))
 
 """
 Graph theoretic pivot on graph-like diagram
+g: A MBQCGraph instance
+u: First vertex
+v: Second vertex
 """
 def pivot(g: GraphMBQC, u: VT, v: VT):
     lcomp(g, u)

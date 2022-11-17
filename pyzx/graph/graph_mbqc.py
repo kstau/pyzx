@@ -1,11 +1,11 @@
-from fractions import Fraction
-from .base import VT, ET, BaseGraph
-from typing import Tuple, Dict, Set, Any
+from .base import VT
+from typing import Dict
 
 from .graph_s import GraphS
 
 from ..utils import MeasurementType, VertexType
 
+#TODO: Think about making measurement plane a vdata attribute of GraphS instead of creating a new class
 class GraphMBQC(GraphS):
     backend = 'mbqc'
 
@@ -44,11 +44,6 @@ class GraphMBQC(GraphS):
         return set(self.vertices()).difference(set(self.outputs()))
 
     def copy(self, adjoint:bool=False):
-        # g = BaseGraph.copy(self)
-        # g.measurements = self.measurements.copy()
-        # import pdb
-        # pdb.set_trace()
-        # return g
         g = GraphMBQC()
         g.track_phases = self.track_phases
         g.scalar = self.scalar.copy()
@@ -94,3 +89,8 @@ class GraphMBQC(GraphS):
         for e,f in etab.items():
             g.set_edge_type(f, self.edge_type(e))
         return g
+    
+    def remove_vertex(self, vertex: VT) -> None:
+        self.remove_vertices([vertex])
+        if vertex in self.measurements:
+            del self.measurements[vertex]
