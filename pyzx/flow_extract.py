@@ -7,8 +7,8 @@ from .extract import graph_to_swaps, bi_adj
 from .linalg import CNOTMaker
 from .flow_rules import lcomp, pivot
 
-"""Extracts a circuit from graph-like diagrams with causal flow"""
 def extract_from_causal_flow(g: BaseGraph[VT, ET]) -> Circuit:
+    """Extracts a circuit from graph-like diagrams with causal flow"""
     circuit = Circuit(g.qubit_count())
     frontier = init_frontier(g, circuit)
     # extract CZs + RZ + Hadamard until no spiders left in diagram            
@@ -33,8 +33,8 @@ def extract_from_causal_flow(g: BaseGraph[VT, ET]) -> Circuit:
     # add swaps if necessary
     return graph_to_swaps(g, False) + circuit
 
-"""Extracts a circuit from graph-like diagrams with XY-gflow, i.e. all spiders are measured in XY-plane"""
 def extract_from_xy_gflow(g: BaseGraph[VT, ET]) -> Circuit:
+    """Extracts a circuit from graph-like diagrams with XY-gflow, i.e. all spiders are measured in XY-plane"""
     circuit = Circuit(g.qubit_count())
     frontier = init_frontier(g, circuit)
     # extract CZs + RZ + Hadamard until no spiders left in diagram            
@@ -68,8 +68,8 @@ def extract_from_xy_gflow(g: BaseGraph[VT, ET]) -> Circuit:
     # add swaps if necessary
     return graph_to_swaps(g, False) + circuit
 
-"""Extracts a circuit from graph-like diagrams with gflow, i.e. all spiders are measured in XY, XZ or YZ plane"""
 def extract_from_gflow(g: GraphMBQC) -> Circuit:
+    """Extracts a circuit from graph-like diagrams with gflow, i.e. all spiders are measured in XY, XZ or YZ plane"""
     circuit = Circuit(g.qubit_count())
     # Transform all XZ spiders to XY spiders via local complementation
     eliminate_xz_spiders(g)
@@ -112,8 +112,8 @@ def extract_from_gflow(g: GraphMBQC) -> Circuit:
     # add swaps if necessary
     return graph_to_swaps(g, False) + circuit
 
-"""Inits the frontier of a ZX-diagram with the spiders adjacent to the outputs. Extracts Hadamard wires between outputs and frontier"""
 def init_frontier(g: BaseGraph[VT, ET], circuit: Circuit) -> Dict[int,VT]:
+    """Inits the frontier of a ZX-diagram with the spiders adjacent to the outputs. Extracts Hadamard wires between outputs and frontier"""
     frontier: Dict[int,VT] = dict()
 
     for i, o in enumerate(g.outputs()):
@@ -126,24 +126,24 @@ def init_frontier(g: BaseGraph[VT, ET], circuit: Circuit) -> Dict[int,VT]:
     
     return frontier
 
-"""Extracts phases of frontier spiders as ZPhase gates and updates the diagram"""
 def extract_rzs(g: BaseGraph[VT, ET], frontier: Dict[int,VT], circuit: Circuit):
+    """Extracts phases of frontier spiders as ZPhase gates and updates the diagram"""
     for qubit,v in frontier.items():
         phase = g.phase(v)
         if phase != 0:
             g.set_phase(v,0)
             circuit.add_gate("ZPhase", qubit, phase)
 
-"""Extracts connected frontier spiders as controlled Z gates and updates the diagram"""
 def extract_czs(g: BaseGraph[VT, ET], frontier: Dict[int,VT], circuit: Circuit):
+    """Extracts connected frontier spiders as controlled Z gates and updates the diagram"""
     for qubit, v in frontier.items():
         for w in set(g.neighbors(v)).intersection(set(frontier.values())):
             g.remove_edge(g.edge(v,w))
             circuit.add_gate("CZ", qubit, list(frontier.keys())[list(frontier.values()).index(w)])
 
-"""Processes all frontier spiders which are only connected to a single non-output spider in the diagram by extracting Hadamards.
-Returns new frontier vertices"""
 def process_frontier(g: BaseGraph[VT, ET], frontier: Dict[int,VT], circuit: Circuit):
+    """Processes all frontier spiders which are only connected to a single non-output spider in the diagram by extracting Hadamards.
+    Returns new frontier vertices"""
     new_frontier: Dict[int,VT] = dict()
     inputs = g.inputs()
     outputs = g.outputs()
@@ -174,9 +174,9 @@ def process_frontier(g: BaseGraph[VT, ET], frontier: Dict[int,VT], circuit: Circ
     
     return new_frontier
 
-"""Helper function for process_frontier: Finds chains of Hadamard + empty 2-ary Z spiders starting from a frontier vertex
-Returns: list of 2-ary spiders + number of Hadamard wires in the chain"""
 def process_hadamards(g: BaseGraph[VT, ET], inputs, processed, v):
+    """Helper function for process_frontier: Finds chains of Hadamard + empty 2-ary Z spiders starting from a frontier vertex
+    Returns: list of 2-ary spiders + number of Hadamard wires in the chain"""
     neighbors = []
     hcount = 0
     while True:
@@ -190,15 +190,15 @@ def process_hadamards(g: BaseGraph[VT, ET], inputs, processed, v):
             processed = set([v])
             v = n 
 
-"""Returns all non-output neighbors of a frontier"""
 def get_frontier_neighbors(g: BaseGraph[VT, ET], frontier: Dict[int,VT]):
+    """Returns all non-output neighbors of a frontier"""
     frontier_neighbors = set()
     for v in frontier.values():
         frontier_neighbors.update(set(g.neighbors(v)).difference(set(g.outputs())))
     return frontier_neighbors
 
-"""Extracts CNOT gates resulting from gaussian elimination to circuit and adds the Hadamard wires of the corresponding frontier vertices"""
 def extract_cnots(g: BaseGraph[VT, ET], frontier: Dict[int,VT], circuit: Circuit, cnot_maker: CNOTMaker):
+    """Extracts CNOT gates resulting from gaussian elimination to circuit and adds the Hadamard wires of the corresponding frontier vertices"""
     for cnot in cnot_maker.cnots:
         # Add CNOT to circuit
         control_qubit = list(frontier)[cnot.control]
@@ -221,8 +221,8 @@ def extract_cnots(g: BaseGraph[VT, ET], frontier: Dict[int,VT], circuit: Circuit
                 else:
                     g.add_edge(g.edge(ftarg,v), EdgeType.HADAMARD)
 
-"""Repeatedly applies local complementation on all XZ spiders in a diagram which thereby become XY spiders"""
 def eliminate_xz_spiders(g: GraphMBQC):
+    """Repeatedly applies local complementation on all XZ spiders in a diagram which thereby become XY spiders"""
     while True:
         candidates = []
         for v in g.vertices():
@@ -235,9 +235,9 @@ def eliminate_xz_spiders(g: GraphMBQC):
         else:
             break
 
-"""Finds a YZ measured spider which is connected to a spider in frontier and applies a pivot on them. 
-By that, the YZ spider transforms to a XY spider"""
 def eliminate_yz_spider(g: GraphMBQC, frontier: Dict[int,VT], frontier_neighbors: Set, circuit: Circuit):
+    """Finds a YZ measured spider which is connected to a spider in frontier and applies a pivot on them. 
+    By that, the YZ spider transforms to a XY spider"""
     for n in frontier_neighbors:
         if g.mtype(n) == MeasurementType.YZ:
             frontier_vertex = list(set(g.neighbors(n)).intersection(set(frontier.values())))[0]

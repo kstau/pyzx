@@ -8,12 +8,10 @@ from .linalg import Mat2, CNOTMaker
 """Generic Flow type = Tuple of correction sets and vertex depth"""
 Flow = (Dict[VT, Set[VT]], Dict[VT,int])
 
-"""
-Function for calculating the maximally delayed causal flow in a graph-like ZX-Diagram
-Nearly identical to tket version, but with reversed ordering and a minor bugfix
-Algorithm is taken from https://arxiv.org/pdf/0709.2670.pdf
-"""
 def identify_causal_flow(g: BaseGraph[VT,ET]) -> Flow:
+    """Function for calculating the maximally delayed causal flow in a graph-like ZX-Diagram
+    Nearly identical to tket version, but with reversed ordering
+    Algorithm is taken from https://arxiv.org/pdf/0709.2670.pdf"""
     solved = set()
     correctors = set()
     past: Dict[VT, int] = dict()
@@ -78,12 +76,12 @@ def identify_causal_flow(g: BaseGraph[VT,ET]) -> Flow:
     return (res[0],inv_depth)
 
 
-"""Compute the maximally delayed gflow of a diagram in graph-like form where every spider is measured in XY plane.
-
-Based on algorithm by Perdrix and Mhalla.
-See dx.doi.org/10.1007/978-3-540-70575-8_70
-"""
 def identify_xy_gflow(g: BaseGraph[VT, ET]) -> Flow:
+    """Compute the maximally delayed gflow of a diagram in graph-like form where every spider is measured in XY plane.
+
+    Based on algorithm by Perdrix and Mhalla.
+    See dx.doi.org/10.1007/978-3-540-70575-8_70
+    """
 
     res: Flow = (dict(),dict())
 
@@ -131,8 +129,8 @@ def identify_xy_gflow(g: BaseGraph[VT, ET]) -> Flow:
             processed.update(correct)
             k += 1
 
-"""helper function for solving M * x = b if additions (cnots) for getting M in echelon form are already calculated"""
 def get_gauss_solution(gauss: Mat2, vec: Mat2, cnots: CNOTMaker):
+    """helper function for solving M * x = b if additions (cnots) for getting M in echelon form are already calculated"""
     for cnot in cnots:
         vec.row_add(cnot.target,cnot.control)
     x = Mat2.zeros(gauss.cols(),1)
@@ -147,8 +145,8 @@ def get_gauss_solution(gauss: Mat2, vec: Mat2, cnots: CNOTMaker):
             return None
     return x
 
-"""helper function for inversing the depth dictionary of the flow algorithms"""
 def inverse_depth(depth: Dict) -> Dict:
+    """helper function for inversing the depth dictionary of the flow algorithms"""
     # reverse ordering of vertices
     max_depth = depth[max(depth, key=depth.get)]
     inv_depth = dict()
@@ -156,8 +154,8 @@ def inverse_depth(depth: Dict) -> Dict:
         inv_depth[k] = max_depth-v
     return inv_depth
 
-"""Compute maximally delayed gflow of a graph-like diagram as in https://arxiv.org/pdf/2003.01664.pdf"""
 def identify_gflow(g: GraphMBQC) -> Flow:
+    """Compute maximally delayed gflow of a graph-like diagram as in https://arxiv.org/pdf/2003.01664.pdf"""
     res: Flow = (dict(), dict())
     processed = set(g.outputs())
     vertices: Set[VT] = set(g.vertices()).difference(set(g.effects()))
@@ -205,8 +203,8 @@ def identify_gflow(g: GraphMBQC) -> Flow:
             processed.update(correct)
             depth += 1
 
-"""Compute maximally delayed pauli flow as in https://arxiv.org/pdf/2109.05654.pdf"""
 def identify_pauli_flow(g: GraphMBQC) -> Flow:
+    """Compute maximally delayed pauli flow as in https://arxiv.org/pdf/2109.05654.pdf"""
     res: Flow = (dict(), dict())
     solved = []
     correctors = []
@@ -245,8 +243,8 @@ def identify_pauli_flow(g: GraphMBQC) -> Flow:
     return res 
 
 
-"""Helper function for pauli flow identification"""
 def solve_pauli_correctors(g: GraphMBQC, solved: list[int], correctors: list[int]):
+    """Helper function for pauli flow identification"""
     to_solve = []
     unsolved_ys = []
     preserve = []
@@ -326,8 +324,10 @@ def solve_pauli_correctors(g: GraphMBQC, solved: list[int], correctors: list[int
             solved_flow[v] = c_i
 
     return solved_flow
-    
-## Testing purposes
+
+
+
+## For Testing, may be outdated
 
 def get_odd_neighbourhood(g: BaseGraph[VT,ET], vertex_set):
   all_neighbors = set()

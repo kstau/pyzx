@@ -5,14 +5,14 @@ from .utils import MeasurementType, VertexType, EdgeType, insert_identity, toggl
 from fractions import Fraction
 from .drawing import draw
 
-"""
-Graph theoretic local complementation on graph-like diagram
-This method does not eliminate Clifford spiders, but introduces XZ and YZ measurement effects as in https://arxiv.org/pdf/2003.01664.pdf
-g: A MBQCGraph instance
-v: The vertex to complement
-inverse: Whether to use angle +pi/2 or -pi/2 for complementing v.
-"""
 def lcomp(g: GraphMBQC, v: VT, inverse = None):
+    """
+    Graph theoretic local complementation on graph-like diagram
+    This method does not eliminate Clifford spiders, but introduces XZ and YZ measurement effects as in https://arxiv.org/pdf/2003.01664.pdf
+    g: A MBQCGraph instance
+    v: The vertex to complement
+    inverse: Whether to use angle +pi/2 or -pi/2 for complementing v.
+    """
     vn = list(g.mneighbors(v))
     vn.sort()
     # default use -pi/2 for every angle > pi, thus we are more likely to get angles cancel out to 0
@@ -84,13 +84,11 @@ def lcomp(g: GraphMBQC, v: VT, inverse = None):
         e = g.effect(v)
         g.set_phase(e, g.phase(e)+Fraction(1,2))
 
-"""
-Graph theoretic pivot on graph-like diagram
-g: A MBQCGraph instance
-u: First vertex
-v: Second vertex
-"""
 def pivot(g: GraphMBQC, u: VT, v: VT):
+    """Graph theoretic pivot on graph-like diagram
+    g: A MBQCGraph instance
+    u: First vertex
+    v: Second vertex"""
     lcomp(g, u)
     lcomp(g, v)
     lcomp(g, u)
