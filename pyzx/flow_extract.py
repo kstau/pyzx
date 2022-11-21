@@ -112,6 +112,11 @@ def extract_from_gflow(g: GraphMBQC) -> Circuit:
     # add swaps if necessary
     return graph_to_swaps(g, False) + circuit
 
+# def extract_from_pauli_flow(g: GraphMBQC) -> Circuit:
+#     circuit = Circuit(g.qubit_count()) #TODO: Pauli flow allows for patterns where |I| != |O|
+    
+
+
 def init_frontier(g: BaseGraph[VT, ET], circuit: Circuit) -> Dict[int,VT]:
     """Inits the frontier of a ZX-diagram with the spiders adjacent to the outputs. Extracts Hadamard wires between outputs and frontier"""
     frontier: Dict[int,VT] = dict()
