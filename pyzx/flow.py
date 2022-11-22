@@ -1,6 +1,6 @@
 from .graph.base import BaseGraph, VT, ET
 from .graph.graph_mbqc import GraphMBQC
-from typing import Dict, Set
+from typing import Dict, Set, List
 from .utils import MeasurementType, VertexType
 from .extract import bi_adj
 from .linalg import Mat2, CNOTMaker
@@ -325,7 +325,75 @@ def solve_pauli_correctors(g: GraphMBQC, solved: list[int], correctors: list[int
 
     return solved_flow
 
+def focus(g: GraphMBQC, flow: Flow) -> Flow:
+    outputs = [list(g.neighbors(output))[0] for output in g.outputs()]
 
+    order: Dict(int, List) = dict()
+    for v, d in flow[1].items():
+        if d in order.keys():
+            order[d].append(v)
+        else:
+            order[d] = [v]
+    
+    for d, vertices in order.items():
+        for v in vertices:
+            corrections = flow[0][v]
+            odd_n = get_odd_nh(g, corrections) #TODO: Update this function
+            parities = dict()
+            for correction in corrections:
+                parities[correction] = 1
+            for correction in corrections:
+                if correction == v or g.mtype(correction) in [MeasurementType.XY, MeasurementType.X]:
+                    continue
+                if g.mtype(correction) == MeasurementType.Y and correction in odd_n:
+                    continue
+                for w in flow[0][correction]:
+                    if w in parities:
+                        parities[w] += 1
+                    else:
+                        parities[w] = 1
+            
+            for w in odd_n:
+                if v == w or w in outputs or g.mtype(w) in [MeasurementType.XZ, MeasurementType.YZ, MeasurementType.Z]:
+                    continue
+                if g.mtype(w) == MeasurementType.Y and w in corrections:
+                    continue
+                for correction in flow[0][w]:
+                    if correction in parities.keys():
+                        parities[correction] += 1
+                    else:
+                        parities[correction] = 1
+            new_c = set()
+            for w, parity in parities.items():
+                if parity % 2 == 1:
+                    new_c.add(w)
+            flow[0][v] = new_c
+
+def get_odd_nh(g: GraphMBQC, vertex_set):
+    """Calculates Odd Neighborhood as in http://arxiv.org/abs/1610.02824v2"""
+    odd_n = set()
+    for v in vertex_set:
+        odd_n.symmetric_difference_update(set(g.neighbors(v)).difference(set(g.outputs())).difference(set(g.effects())))
+    return odd_n
+
+def check_focussed_property(g: GraphMBQC, flow: Flow):
+    for v, corrections in flow[0].items():
+        # FX
+        to_check1 = corrections.difference(set(g.outputs())).difference(set(v))
+        if not all([g.mtype(w) in [MeasurementType.XY, MeasurementType.X, MeasurementType.Y] for w in to_check1]):
+            print("A vertex in the correction set of ",v," is not measured in XY, X or Y plane")
+            return False
+        #FZ
+        to_check2 = get_odd_nh(g, corrections).difference(set(g.outputs())).difference(set(v))
+        if not all([g.mtype(w) in [MeasurementType.XZ, MeasurementType.YZ, MeasurementType.Y, MeasurementType.Z] for w in to_check2]):
+            print("A vertex in the odd neighborhood of the correction set of ",v," is not measured in XZ, YZ, Y or Z plane")
+            return False
+        #FY
+        # ys_1 = filter()
+        # if not to_check1.intersection([])
+
+    return True
+            
 
 ## For Testing, may be outdated
 
