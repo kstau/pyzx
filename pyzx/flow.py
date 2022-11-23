@@ -238,7 +238,7 @@ def identify_pauli_flow(g: GraphMBQC) -> Flow:
             if not v in inputs:
                 correctors.append(v)
         depth += 1
-    if len(solved) + len(inputs) != len(g.vertices()):
+    if len(solved) + len(inputs) != len(g.vertices()) - len(g.effects()):
         return False
     return res 
 
@@ -250,6 +250,8 @@ def solve_pauli_correctors(g: GraphMBQC, solved: list[int], correctors: list[int
     preserve = []
 
     for v in g.non_inputs():
+        if g.mtype(v) == MeasurementType.EFFECT:
+            continue
         if not v in solved:
             to_solve.append(v)
             if g.mtype(v) == MeasurementType.Y:
@@ -261,7 +263,7 @@ def solve_pauli_correctors(g: GraphMBQC, solved: list[int], correctors: list[int
 
     # fill lhs, aka. M A,u
     for corrector in correctors:
-        for n in g.neighbors(corrector):
+        for n in g.mneighbors(corrector):
             if n in preserve:
                 mat.data[preserve.index(n)][correctors.index(corrector)] = 1
             else:
@@ -278,7 +280,7 @@ def solve_pauli_correctors(g: GraphMBQC, solved: list[int], correctors: list[int
         if mtype in [MeasurementType.XY, MeasurementType.X, MeasurementType.XZ]:
             mat.data[preserve.index(candidate)][len(correctors) + to_solve.index(candidate)] = 1
         if mtype in [MeasurementType.XZ, MeasurementType.YZ, MeasurementType.Z]:
-            for n in g.neighbors(candidate):
+            for n in g.mneighbors(candidate):
                 if n in preserve:
                     mat.data[preserve.index(n)][len(correctors) + to_solve.index(candidate)] = 1
                 else:
