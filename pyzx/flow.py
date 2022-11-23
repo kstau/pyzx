@@ -326,6 +326,7 @@ def solve_pauli_correctors(g: GraphMBQC, solved: list[int], correctors: list[int
     return solved_flow
 
 def focus(g: GraphMBQC, flow: Flow) -> Flow:
+    """Focusses a flow according to Definition 4.3. of https://arxiv.org/pdf/2109.05654.pdf"""
     outputs = [list(g.neighbors(output))[0] for output in g.outputs()]
 
     order: Dict(int, List) = dict()
@@ -338,7 +339,7 @@ def focus(g: GraphMBQC, flow: Flow) -> Flow:
     for d, vertices in order.items():
         for v in vertices:
             corrections = flow[0][v]
-            odd_n = get_odd_nh(g, corrections) #TODO: Update this function
+            odd_n = get_odd_nh(g, corrections).difference(set(g.inputs()))
             parities = dict()
             for correction in corrections:
                 parities[correction] = 1
@@ -377,20 +378,25 @@ def get_odd_nh(g: GraphMBQC, vertex_set):
     return odd_n
 
 def check_focussed_property(g: GraphMBQC, flow: Flow):
+    """Checks if a given flow is focussed in the sense of Def 4.3. in https://arxiv.org/pdf/2109.05654.pdf"""
+    outputs = set([list(g.neighbors(output))[0] for output in g.outputs()])
     for v, corrections in flow[0].items():
         # FX
-        to_check1 = corrections.difference(set(g.outputs())).difference(set(v))
+        to_check1 = corrections.difference(outputs).difference(set([v]))
         if not all([g.mtype(w) in [MeasurementType.XY, MeasurementType.X, MeasurementType.Y] for w in to_check1]):
-            print("A vertex in the correction set of ",v," is not measured in XY, X or Y plane")
+            print("A vertex in the correction set of",v,"is not measured in XY, X or Y plane")
             return False
         #FZ
-        to_check2 = get_odd_nh(g, corrections).difference(set(g.outputs())).difference(set(v))
+        to_check2 = get_odd_nh(g, corrections).difference(outputs).difference(set([v])).difference(set(g.inputs()))
         if not all([g.mtype(w) in [MeasurementType.XZ, MeasurementType.YZ, MeasurementType.Y, MeasurementType.Z] for w in to_check2]):
-            print("A vertex in the odd neighborhood of the correction set of ",v," is not measured in XZ, YZ, Y or Z plane")
+            print("A vertex in the odd neighborhood of the correction set of",v,"is not measured in XZ, YZ, Y or Z plane")
             return False
         #FY
-        # ys_1 = filter()
-        # if not to_check1.intersection([])
+        ys_1 = set([w for w in to_check1 if g.mtype(w) == MeasurementType.Y])
+        ys_2 = set([w for w in to_check2 if g.mtype(w) == MeasurementType.Y])
+        if ys_1 != ys_2:
+            print("A Y-measured vertex in the correction set of",v," does not occur in the odd neighborhood of the correction set or vice versa")
+            return False
 
     return True
             
