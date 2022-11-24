@@ -7,7 +7,12 @@ from .extract import graph_to_swaps, bi_adj
 from .linalg import CNOTMaker
 from .flow_rules import lcomp, pivot
 from .flow import Flow, get_odd_nh, focus, identify_pauli_flow
+from .simplify import clifford_simp
 from fractions import Fraction
+
+#debug
+from .tensor import compare_tensors
+from .drawing import draw
 
 def extract_from_causal_flow(g: BaseGraph[VT, ET]) -> Circuit:
     """Extracts a circuit from graph-like diagrams with causal flow"""
@@ -115,7 +120,7 @@ def extract_from_gflow(g: GraphMBQC) -> Circuit:
     return graph_to_swaps(g, False) + circuit
 
 def extract_from_pauli_flow(g: GraphMBQC) -> Circuit:
-    circuit = Circuit(len(g.outputs())) #TODO: Pauli flow allows for patterns where |I| != |O|
+    circuit = Circuit(len(g.outputs())) 
     pauli_flow = identify_pauli_flow(g)
     focus(g, pauli_flow)
     
@@ -129,9 +134,21 @@ def extract_from_pauli_flow(g: GraphMBQC) -> Circuit:
     for depth in range(0,len(order.keys())):
         for v in order[depth]:
             if g.mtype(v) in [MeasurementType.XY, MeasurementType.XZ, MeasurementType.YZ]:
-                extract_pauli_gadget(g, v, pauli_flow, circuit)
+                extraction_str = get_primary_extraction_string(g, v, pauli_flow)
+                extract_pauli_gadget(g, v, extraction_str, circuit)
     
-    return circuit
+    circuit.gates = list(reversed(circuit.gates))
+    draw(g, labels=True)
+    g_orig = g.copy()
+    clifford_simp(g) 
+
+    # import pdb
+    # pdb.set_trace()
+
+    circuit2 = extract_from_xy_gflow(g) #TODO: Pauli flow allows for patterns where |I| != |O|
+    assert(compare_tensors(circuit2, g_orig))
+
+    return circuit2 + circuit
 
 
 def init_frontier(g: BaseGraph[VT, ET], circuit: Circuit) -> Dict[int,VT]:
@@ -282,10 +299,11 @@ def eliminate_yz_spider(g: GraphMBQC, frontier: Dict[int,VT], frontier_neighbors
             break
 
 def get_primary_extraction_string(g: GraphMBQC, v: VT, flow: Flow):
-    """determines primary extraction string according to Definition 4.2. of https://arxiv.org/pdf/2109.05654.pdf"""
+    """determines primary extraction string over the outputs according to Definition 4.2. of https://arxiv.org/pdf/2109.05654.pdf"""
     corrections = flow[0][v]
     odd_n = get_odd_nh(g, corrections)
     outputs = [v for v in flow[0].keys() if len(flow[0][v]) == 0]
+    print(outputs)
     extraction_string = ""
     for output in outputs:
         if output in corrections:
@@ -300,42 +318,36 @@ def get_primary_extraction_string(g: GraphMBQC, v: VT, flow: Flow):
 
     return extraction_string
 
-def extract_pauli_gadget(g: GraphMBQC, v: VT, flow: Flow, circuit: Circuit):
-    """extracts a planar (XY, XZ, YZ) spider to circuit as a pauli gadget"""
-    pes = get_primary_extraction_string(g, v, flow)
-    open_control = None
-    for qubit in range(0, circuit.qubits-1):
-        if pes[qubit] == 'I':
-            continue
-        elif pes[qubit] == 'X':
+def extract_pauli_gadget(g: GraphMBQC, v: VT, extraction_string: str, circuit: Circuit):
+    print(extraction_string)
+    for qubit, extraction in enumerate(extraction_string):
+        if extraction == 'X':
             circuit.add_gate("HAD", qubit)
-        elif pes[qubit] == 'Y':
-            circuit.add_gate("XPhase", qubit, Fraction(1,2))
+        elif extraction == 'Y':
+            circuit.add_gate("XPhase", qubit, -Fraction(1,2))
 
-        if open_control != None:
-            circuit.add_gate("CNOT",open_control, qubit)
-            print("cnot begin from ",open_control, qubit)
-        open_control = qubit
+    last_non_identity = None
+    for qubit, extraction in enumerate(extraction_string):
+        if extraction != 'I':
+            if last_non_identity != None:
+                circuit.add_gate("CNOT",last_non_identity, qubit)
+            last_non_identity = qubit
     
-    vertex_to_cancel = v if g.mtype(v) == MeasurementType.XY else g.effect(v)
-    if open_control != None:
-        circuit.add_gate("CNOT",open_control, circuit.qubits-1)
-        print("cnot middle from ",open_control, circuit.qubits-1)
-    circuit.add_gate("ZPhase",circuit.qubits-1, g.phase(vertex_to_cancel) if g.mtype(vertex_to_cancel) == MeasurementType.YZ else -g.phase(vertex_to_cancel))
-    open_target = circuit.qubits-1
+    phase_vertex = v if g.mtype(v) == MeasurementType.XY else g.effect(v)
+    circuit.add_gate("ZPhase",last_non_identity, g.phase(phase_vertex) if g.mtype(v) == MeasurementType.YZ else g.phase(phase_vertex))
+    print("add zphase on ",last_non_identity, g.phase(phase_vertex) if g.mtype(v) == MeasurementType.YZ else g.phase(phase_vertex))
+    g.set_phase(phase_vertex,0)
 
-    for qubit in range(circuit.qubits-2, -1, -1):
-        if pes[qubit] == 'I':
-            continue
-        if open_target != None:
-            circuit.add_gate("CNOT",qubit, open_target)
-            print("cnot end from ",qubit, open_target)
-        open_target = qubit
-        if pes[qubit] == 'X':
+    last_non_identity = None
+    for qubit, extraction in reversed(list(enumerate(extraction_string))):
+        if extraction != 'I':
+            if last_non_identity != None:
+                circuit.add_gate("CNOT",qubit, last_non_identity)
+            last_non_identity = qubit
+    
+    for qubit, extraction in reversed(list(enumerate(extraction_string))):
+        if extraction == 'X':
             circuit.add_gate("HAD", qubit)
-        elif pes[qubit] == 'Y':
+        elif extraction == 'Y':
             circuit.add_gate("XPhase", qubit, Fraction(1,2))
-
-    # circuit.add_gate("CNOT",open_control, open_target)    
     
-    g.set_phase(vertex_to_cancel,0)
