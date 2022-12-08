@@ -376,7 +376,7 @@ def get_odd_nh(g: GraphMBQC, vertex_set):
     """Calculates Odd Neighborhood as in http://arxiv.org/abs/1610.02824v2"""
     odd_n = set()
     for v in vertex_set:
-        odd_n.symmetric_difference_update(set(g.neighbors(v)).difference(set(g.outputs())).difference(set(g.effects())))
+        odd_n.symmetric_difference_update(set(g.neighbors(v)).difference(set(g.outputs())).difference(set(g.inputs())).difference(set(g.effects())))
     return odd_n
 
 def check_focussed_property(g: GraphMBQC, flow: Flow):
@@ -401,7 +401,59 @@ def check_focussed_property(g: GraphMBQC, flow: Flow):
             return False
 
     return True
-            
+
+def check_pauli_flow(g: GraphMBQC, flow: Flow):
+    """Checks if a given pauli flow is correct (According Def 4.1 in https://arxiv.org/pdf/2109.05654.pdf"""
+    outputs = set([list(g.neighbors(output))[0] for output in g.outputs()])
+    for u in set(flow[0].keys()).difference(outputs):
+        corrections = flow[0][u]
+        odd_nh = get_odd_nh(g, corrections)
+        u_order = flow[1][u]
+        #<X
+        for v in corrections:
+            if v != u and not g.mtype(v) in [MeasurementType.X, MeasurementType.Y] and flow[1][u] < flow[1][v]:
+                print(u,"is measured after",v,",but",v," is not X or Y measured and occurs in the correction set of",u)
+                return False
+        #<Z
+        for v in odd_nh:
+            if v != u and not g.mtype(v) in [MeasurementType.Y, MeasurementType.Z] and flow[1][u] < flow[1][v]:
+                print(u,"is measured after",v,",but",v," is not Y or Z measured and occurs in the odd neighborhood of the correction set of",u)
+                return False
+        #<Y
+        ys_1 = set([v for v in corrections if g.mtype(v) == MeasurementType.Y and flow[1][v] >= u_order and v != u])
+        ys_2 = set([v for v in odd_nh if g.mtype(v) == MeasurementType.Y and flow[1][v] >= u_order and v != u])
+        if not ys_1 == ys_2:
+            print("A Y-measured vertex in the correction set of",u," does not occur in the odd neighborhood of the correction set or vice versa.")
+            return False
+        #lXY, XZ, YZ
+        if g.mtype(u) == MeasurementType.XY:
+            if (u in corrections) or (not u in odd_nh):
+                print(u,"is XY-measured but either does occur in its correction set or does not occur in the odd neighborhood of its correction set.")
+                return False
+        elif g.mtype(u) == MeasurementType.XZ:
+            if (not u in corrections) or (not u in odd_nh):
+                print(u,"is XZ-measured but either does not occur in its correction set or does not occur in the odd neighborhood of its correction set.")
+                return False
+        elif g.mtype(u) == MeasurementType.YZ:
+            if (not u in corrections) or (u in odd_nh):
+                print(u,"is XZ-measured but either does not occur in its correction set or does occur in the odd neighborhood of its correction set.")
+                return False
+        #lX,Z,Y
+        elif g.mtype(u) == MeasurementType.X:
+            if not u in odd_nh:
+                print(u,"is X-measured but does not occur in the odd neighborhood of its correction set.")
+                return False
+        elif g.mtype(u) == MeasurementType.Z:
+            if not u in corrections:
+                print(u,"is Z-measured but does not occur in its correction set.")
+                return False
+        elif g.mtype(u) == MeasurementType.Y:
+            if not ((u in corrections) ^ (u in odd_nh)):
+                print(u,"is Y-measured but is not exclusively in either its correction set or the odd neighborhood of its correction set.")
+                return False
+        else:
+            print("Error:",u,"has no measurement effect.")
+    return True
 
 ## For Testing, may be outdated
 
