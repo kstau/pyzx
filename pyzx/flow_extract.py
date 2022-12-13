@@ -433,9 +433,11 @@ def test_all_extraction_strings(g: GraphMBQC, v: VT, angle: Fraction):
     """Iterates through all possible Pauli gadgets over all wires and checks whether extracting one of them preserves the linear map 
     when we set the angle of v to 0 and the angle of the pauli gadget to the parameter, i.e. the original angle of v"""
     g_orig = g.copy()
+    g_temp = g.copy()
+    found_valid_extraction_string = False
     
-    for extraction_string in list(itertools.product(['I','X','Y','Z'],repeat=len(g.outputs())))[1:]:
-        circuit = Circuit(len(g.outputs())) 
+    for extraction_string in list(itertools.product(['I','X','Y','Z'],repeat=len(g_temp.outputs())))[1:]:
+        circuit = Circuit(len(g_temp.outputs())) 
         # sign = calculate_extraction_string_sign_zx(g,v)
         # print(v, extraction_string)
         for qubit, extraction in enumerate(extraction_string):
@@ -451,10 +453,10 @@ def test_all_extraction_strings(g: GraphMBQC, v: VT, angle: Fraction):
                     circuit.add_gate("CNOT",last_non_identity, qubit)
                 last_non_identity = qubit
         
-        phase_vertex = v if g.mtype(v) == MeasurementType.XY else g.effect(v)
+        phase_vertex = v if g_temp.mtype(v) == MeasurementType.XY else g.effect(v)
         circuit.add_gate("ZPhase",last_non_identity, angle)
         # print("add zphase on ",last_non_identity, g.phase(phase_vertex) if sign == -1 else -g.phase(phase_vertex))
-        g.set_phase(phase_vertex,0)
+        g_temp.set_phase(phase_vertex,0)
 
         last_non_identity = None
         for qubit, extraction in reversed(list(enumerate(extraction_string))):
@@ -472,11 +474,22 @@ def test_all_extraction_strings(g: GraphMBQC, v: VT, angle: Fraction):
         test_graph = circuit.copy()
         test_graph.gates = list(reversed(test_graph.gates))
         test_graph = test_graph.to_graph()
-        if compare_tensors(g_orig, g+test_graph):
+        if compare_tensors(g_orig, g_temp+test_graph):
             print(extraction_string)
-            import pdb
-            pdb.set_trace()
-            return True
-        g = g_orig.copy()
+            found_valid_extraction_string = True
+            # import pdb
+            # pdb.set_trace()
+            # return True
+        g_temp = g_orig.copy()
+    if found_valid_extraction_string:
+        return True
     print("No pauli gadget with angle",angle,"could be extracted!")
     return False
+
+def extract_single_pauli_gadget(g: GraphMBQC, v: VT, pauli_flow: Flow):
+    circuit = Circuit(len(g.outputs())) 
+
+    frontier: Dict[int,VT] = init_frontier(g, circuit)
+    extract_pauli_gadget(g, v, pauli_flow, circuit, frontier)
+    circuit.gates = list(reversed(circuit.gates))
+    return circuit
