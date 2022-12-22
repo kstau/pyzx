@@ -251,7 +251,7 @@ def solve_pauli_correctors(g: GraphMBQC, solved: list[int], correctors: list[int
                 unsolved_ys.append(v)
             elif g.mtype(v) != MeasurementType.Z:
                 preserve.append(v)
-    print("K(A,u)",correctors,"P(A,u)",preserve,"Y(A,u)",unsolved_ys)
+    
     mat = Mat2.zeros(len(preserve) + len(unsolved_ys), len(correctors) + len(to_solve))
 
     # fill lhs, aka. M A,u
@@ -281,22 +281,11 @@ def solve_pauli_correctors(g: GraphMBQC, solved: list[int], correctors: list[int
                         mat.data[len(preserve) + unsolved_ys.index(n)][len(correctors) + to_solve.index(candidate)] = 1
         if mtype == MeasurementType.Y:
             mat.data[len(preserve) + unsolved_ys.index(candidate)][len(correctors) + to_solve.index(candidate)] = 1
-        # import pdb
-        # pdb.set_trace()
+
     # gaussian elimination
     sub_matrix = Mat2([[mat.data[i][j] for j in range(len(correctors))] for i in range(len(preserve) + len(unsolved_ys))])
-    print(sub_matrix)
-    solution_matrix = Mat2([[mat.data[i][j+len(correctors)] for j in range(len(to_solve))] for i in range(len(preserve) + len(unsolved_ys))])
-    # print("solve",sub_matrix,"*X_k=\n",solution_matrix)
     cnot_maker = CNOTMaker()
     sub_matrix.gauss(x=cnot_maker, full_reduce=True)
-
-    for i in range(0,len(to_solve)):
-        vu = Mat2([[mat.data[j][i+len(correctors)]] for j in range(0,mat.rows())])
-        sol = get_gauss_solution(sub_matrix,vu, cnot_maker.cnots)
-        if sol:
-        # print("to solve ",i," vu",vu)
-            print("solution for ",to_solve[i]," :",sol)
 
     for cnot in cnot_maker.cnots:
         mat.row_add(cnot.target,cnot.control)
@@ -311,7 +300,6 @@ def solve_pauli_correctors(g: GraphMBQC, solved: list[int], correctors: list[int
             if mat.data[i][j]:
                 row_correctors[i] = correctors[j]
     
-    print(row_correctors)
     solved_flow = dict()
     
     for i in range(len(to_solve)):
