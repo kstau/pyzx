@@ -37,11 +37,20 @@ class GraphMBQC(GraphS):
     def effects(self):
         return [v for v,m in self.measurements.items() if m == MeasurementType.EFFECT]
 
+    def mvertices(self):
+        return set(self.vertices()).difference(set(self.inputs())).difference(set(self.outputs())).difference(set(self.effects()))
+
+    def minputs(self):
+        return set([list(self.neighbors(input))[0] for input in self.inputs()])
+
+    def moutputs(self):
+        return set([list(self.neighbors(output))[0] for output in self.outputs()])
+
     def non_inputs(self):
-        return set(self.vertices()).difference(set(self.inputs()))
+        return set(self.mvertices()).difference(set(self.minputs()))
 
     def non_outputs(self):
-        return set(self.vertices()).difference(set(self.outputs()))
+        return set(self.mvertices()).difference(set(self.moutputs()))
 
     def copy(self, adjoint:bool=False):
         g = GraphMBQC()

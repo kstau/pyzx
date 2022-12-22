@@ -4,6 +4,7 @@ from typing import Dict, Set, List
 from .utils import MeasurementType, VertexType
 from .extract import bi_adj
 from .linalg import Mat2, CNOTMaker
+import itertools
 
 """Generic Flow type = Tuple of correction sets and vertex depth"""
 Flow = (Dict[VT, Set[VT]], Dict[VT,int])
@@ -208,21 +209,15 @@ def identify_pauli_flow(g: GraphMBQC) -> Flow:
     res: Flow = (dict(), dict())
     solved = []
     correctors = []
-    inputs = []
-    for input in g.inputs():
-        n = list(g.neighbors(input))[0]
-        inputs.append(n)
 
-    for output in g.outputs():
-        solved.append(output)
-        n = list(g.neighbors(output))[0]
-        if not n in g.inputs():
-            solved.append(n)
-            res[0][n] = set()
-            res[1][n] = 0
+    for output in g.moutputs():
+        if not output in g.inputs():
+            solved.append(output)
+            res[0][output] = set()
+            res[1][output] = 0
     
-    for v in g.non_outputs():
-        if not v in g.inputs() and g.mtype(v) in [MeasurementType.X, MeasurementType.Y]:
+    for v in g.non_inputs():
+        if g.mtype(v) in [MeasurementType.X, MeasurementType.Y]:
             correctors.append(v)
 
     depth = 1
@@ -235,10 +230,10 @@ def identify_pauli_flow(g: GraphMBQC) -> Flow:
             res[0][v] = c_s
             res[1][v] = depth
             solved.append(v)
-            if not v in inputs:
+            if not v in g.minputs():
                 correctors.append(v)
         depth += 1
-    if len(solved) + len(inputs) != len(g.vertices()) - len(g.effects()):
+    if len(solved) != len(g.mvertices()):
         return False
     return res 
 
@@ -249,16 +244,14 @@ def solve_pauli_correctors(g: GraphMBQC, solved: list[int], correctors: list[int
     unsolved_ys = []
     preserve = []
 
-    for v in g.non_inputs():
-        if g.mtype(v) == MeasurementType.EFFECT:
-            continue
+    for v in g.mvertices():
         if not v in solved:
             to_solve.append(v)
             if g.mtype(v) == MeasurementType.Y:
                 unsolved_ys.append(v)
             elif g.mtype(v) != MeasurementType.Z:
                 preserve.append(v)
-    
+    print("K(A,u)",correctors,"P(A,u)",preserve,"Y(A,u)",unsolved_ys)
     mat = Mat2.zeros(len(preserve) + len(unsolved_ys), len(correctors) + len(to_solve))
 
     # fill lhs, aka. M A,u
@@ -288,11 +281,22 @@ def solve_pauli_correctors(g: GraphMBQC, solved: list[int], correctors: list[int
                         mat.data[len(preserve) + unsolved_ys.index(n)][len(correctors) + to_solve.index(candidate)] = 1
         if mtype == MeasurementType.Y:
             mat.data[len(preserve) + unsolved_ys.index(candidate)][len(correctors) + to_solve.index(candidate)] = 1
-
+        # import pdb
+        # pdb.set_trace()
     # gaussian elimination
     sub_matrix = Mat2([[mat.data[i][j] for j in range(len(correctors))] for i in range(len(preserve) + len(unsolved_ys))])
+    print(sub_matrix)
+    solution_matrix = Mat2([[mat.data[i][j+len(correctors)] for j in range(len(to_solve))] for i in range(len(preserve) + len(unsolved_ys))])
+    # print("solve",sub_matrix,"*X_k=\n",solution_matrix)
     cnot_maker = CNOTMaker()
     sub_matrix.gauss(x=cnot_maker, full_reduce=True)
+
+    for i in range(0,len(to_solve)):
+        vu = Mat2([[mat.data[j][i+len(correctors)]] for j in range(0,mat.rows())])
+        sol = get_gauss_solution(sub_matrix,vu, cnot_maker.cnots)
+        if sol:
+        # print("to solve ",i," vu",vu)
+            print("solution for ",to_solve[i]," :",sol)
 
     for cnot in cnot_maker.cnots:
         mat.row_add(cnot.target,cnot.control)
@@ -307,6 +311,7 @@ def solve_pauli_correctors(g: GraphMBQC, solved: list[int], correctors: list[int
             if mat.data[i][j]:
                 row_correctors[i] = correctors[j]
     
+    print(row_correctors)
     solved_flow = dict()
     
     for i in range(len(to_solve)):
@@ -376,7 +381,7 @@ def get_odd_nh(g: GraphMBQC, vertex_set):
     """Calculates Odd Neighborhood as in http://arxiv.org/abs/1610.02824v2"""
     odd_n = set()
     for v in vertex_set:
-        odd_n.symmetric_difference_update(set(g.neighbors(v)).difference(set(g.outputs())).difference(set(g.inputs())).difference(set(g.effects())))
+        odd_n.symmetric_difference_update(set(g.mneighbors(v)))
     return odd_n
 
 def check_focussed_property(g: GraphMBQC, flow: Flow):
@@ -411,12 +416,12 @@ def check_pauli_flow(g: GraphMBQC, flow: Flow):
         u_order = flow[1][u]
         #<X
         for v in corrections:
-            if v != u and not g.mtype(v) in [MeasurementType.X, MeasurementType.Y] and flow[1][u] < flow[1][v]:
+            if v != u and not g.mtype(v) in [MeasurementType.X, MeasurementType.Y] and flow[1][u] <= flow[1][v]:
                 print(u,"is measured after",v,",but",v," is not X or Y measured and occurs in the correction set of",u)
                 return False
         #<Z
         for v in odd_nh:
-            if v != u and not g.mtype(v) in [MeasurementType.Y, MeasurementType.Z] and flow[1][u] < flow[1][v]:
+            if v != u and not g.mtype(v) in [MeasurementType.Y, MeasurementType.Z] and flow[1][u] <= flow[1][v]:
                 print(u,"is measured after",v,",but",v," is not Y or Z measured and occurs in the odd neighborhood of the correction set of",u)
                 return False
         #<Y
@@ -505,6 +510,146 @@ def check_pauli_flow_kashefi(g: GraphMBQC, flow: Flow):
         else:
             print("Error:",i,"has no measurement effect.")
     return True
+
+def check_d_corrector(g: GraphMBQC, u: VT, v: VT, d: Set[VT]):
+    """check if vertex v is a D-corrector(d) of vertex u according to Definition 7 in https://arxiv.org/pdf/2207.09368.pdf"""
+    odd_nh = get_odd_nh(g,d)
+    if g.mtype(v) in [MeasurementType.X, MeasurementType.XY, MeasurementType.XZ]:
+        if (v in odd_nh) ^ (u == v):
+            return True
+    if g.mtype(v) in [MeasurementType.Y, MeasurementType.XY, MeasurementType.YZ]:
+        if (v in odd_nh.symmetric_difference(d)) ^ (u == v):
+            return True
+    if g.mtype(v) in [MeasurementType.Z, MeasurementType.XZ, MeasurementType.YZ]:
+        if (v in d) ^ (u == v):
+            return True
+    return False
+
+def check_pauli_flow_mhalla(g: GraphMBQC, flow: Flow):
+    """check pauli flow according to Definition 8 in https://arxiv.org/pdf/2207.09368.pdf"""
+    outputs = set([list(g.neighbors(output))[0] for output in g.outputs()])
+    non_outputs = set(flow[0].keys()).difference(outputs)
+    for u,v in itertools.product(non_outputs,non_outputs):
+        if check_d_corrector(g,u,v,flow[0][u]):
+            if not flow[1][u] > flow[1][v]:
+                print("pauli flow error on vertices ",u,v,flow[0][u])
+                return False
+    return True
+
+# def get_gl_inputs(g:GraphMBQC):
+
+
+def pauli_lambda(g: GraphMBQC, vertex: VT, pauli: MeasurementType) -> Set[VT]:
+    """Λ(P,u)"""
+    return set([v for v in g.non_outputs() if g.mtype(v) == pauli and v != vertex])
+
+def get_possible_witnesses(g: GraphMBQC, vertex: VT, correctors: Set[VT]) -> List[VT]:
+    """K(A,u)"""
+    res = set().union(correctors)
+    res.update(pauli_lambda(g, vertex, MeasurementType.X))
+    res.update(pauli_lambda(g, vertex, MeasurementType.Y))
+    res.intersection_update(g.non_inputs())
+    return list(res)
+
+def get_remain_corrected(g: GraphMBQC, vertex: VT, correctors: Set[VT]) -> List[VT]:
+    """P(A,u)"""
+    res = set().union(correctors)
+    res.update(pauli_lambda(g, vertex, MeasurementType.Y))
+    res.update(pauli_lambda(g, vertex, MeasurementType.Z))
+    return list(g.mvertices().difference(res)) #complementary
+
+def get_y_check_vertices(g: GraphMBQC, vertex: VT, correctors: Set[VT]) -> List[VT]:
+    """Y(A,u)"""
+    return list(pauli_lambda(g, vertex, MeasurementType.Y).difference(correctors))
+
+def get_witness_search_cases(g: GraphMBQC, vertex: VT):
+    """~λ"""
+    cases = []
+    if g.mtype(vertex) in [MeasurementType.XY, MeasurementType.X, MeasurementType.Y]:
+        cases.append(MeasurementType.XY)
+    if g.mtype(vertex) in [MeasurementType.XZ, MeasurementType.X, MeasurementType.Z]:
+        cases.append(MeasurementType.XZ)
+    if g.mtype(vertex) in [MeasurementType.YZ, MeasurementType.Y, MeasurementType.Z]:
+        cases.append(MeasurementType.YZ)
+    return cases
+
+def solve_pauli_correctors2(g: GraphMBQC, vertex: VT, correctors: Set[VT]):
+    possible_witnesses = get_possible_witnesses(g, vertex, correctors)
+    remain_corrected = get_remain_corrected(g, vertex, correctors)
+    y_check_vertices = get_y_check_vertices(g, vertex, correctors)
+
+    m = Mat2.zeros(len(remain_corrected) + len(y_check_vertices), len(possible_witnesses)) #M(A,u)
+    for j,v in enumerate(possible_witnesses):
+        for n in g.neighbors(v):
+            if n in remain_corrected:
+                m.data[remain_corrected.index(n)][j] = 1 #upper part P(A,u)
+            if n in y_check_vertices:
+                m.data[len(remain_corrected) + y_check_vertices.index(n)][j] = 1 #lower part Y(A,u)
+        if v in y_check_vertices:
+            m.data[len(remain_corrected) + y_check_vertices.index(v)][j] = 1 #lower part Id
+    
+    cnot_maker = CNOTMaker()
+    m.gauss(x=cnot_maker, full_reduce=True)
+    x_k = None
+
+    for m_plane in get_witness_search_cases(g, vertex):
+        #construct solution vectors
+        s_vec = Mat2.zeros(len(remain_corrected) + len(y_check_vertices), 1)
+        if m_plane in [MeasurementType.XY, MeasurementType.XZ]:
+            s_vec.data[remain_corrected.index(vertex)][0] = 1
+        if m_plane in [MeasurementType.XZ, MeasurementType.YZ]:  
+            for n in g.neighbors(vertex):
+                #upper part
+                if n in remain_corrected:
+                    s_vec.data[remain_corrected.index(n)][0] = 1
+                #lower part
+                if n in y_check_vertices:
+                    s_vec.data[len(remain_corrected) + y_check_vertices.index(n)][0] = 1
+
+        x_k = get_gauss_solution(m, s_vec, cnot_maker.cnots) # assuming that even we match two witness cases the sets are the same
+
+        if x_k:
+            return {possible_witnesses[i] for i in range(x_k.rows()) if x_k.data[i][0]}
+    
+    return None
+            
+def identify_pauli_flow2(g: GraphMBQC) -> Flow:
+    """Alternative version for pauli flow identification corresponding more to the paper version, 
+    i.e. gaussian eliminations are applied sequentially for all candidates (solving M*X_k = 'vector' instead of M*X_k = 'matrix')
+    expected to be slower in runtime"""
+    res: Flow = (dict(),dict())
+    solved = set()
+
+    for output in g.outputs():
+        n = list(g.neighbors(output))[0]
+        if not n in g.inputs():
+            solved.add(n)
+            res[0][n] = set()
+            res[1][n] = 0
+    
+    correctors = set()
+    k = 0
+    while True:
+        temp_solved = set()
+        for vertex in g.mvertices().difference(solved):
+            witness_set = solve_pauli_correctors2(g, vertex, correctors)
+            if witness_set:
+                if g.mtype(vertex) in [MeasurementType.XZ, MeasurementType.YZ, MeasurementType.Z]:
+                    witness_set.add(vertex) #Not mentioned in paper but seems to be necessary ?
+                res[0][vertex] = witness_set
+                res[1][vertex] = k
+                temp_solved.add(vertex)
+        if len(temp_solved) > 0 or k == 0:
+            solved.update(temp_solved)
+            correctors = solved
+            k += 1
+        else:
+            if len(g.mvertices()) == len(solved):
+                return res
+            else:
+                return None
+
+    
 ## For Testing, may be outdated
 
 def get_odd_neighbourhood(g: BaseGraph[VT,ET], vertex_set):
