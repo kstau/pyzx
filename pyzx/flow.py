@@ -372,6 +372,25 @@ def get_odd_nh(g: GraphMBQC, vertex_set):
         odd_n.symmetric_difference_update(set(g.mneighbors(v)))
     return odd_n
 
+def check_focussed_2(g: GraphMBQC, flow: Flow):
+    """Checks if a given flow is focussed in the sense of Def 4.3. in https://arxiv.org/pdf/2109.05654.pdf"""
+    for v in g.non_outputs():
+        check_corrections = flow[0][v].difference(g.moutputs()).difference(set([v]))
+        check_odd_nh = get_odd_nh(g, flow[0][v]).difference(g.moutputs()).difference(set([v]))
+        #FX
+        if not all([g.mtype(w) in [MeasurementType.XY, MeasurementType.X, MeasurementType.Y] for w in check_corrections]):
+            print("A vertex in the correction set of",v,"is not measured in XY, X or Y plane")
+            return False
+        #FZ
+        if not all([g.mtype(w) in [MeasurementType.XZ, MeasurementType.YZ, MeasurementType.Y, MeasurementType.Z] for w in check_odd_nh]):
+            print("A vertex in the odd neighborhood of the correction set of",v,"is not measured in XZ, YZ, Y or Z plane")
+            return False
+        #FY
+        if set([y for y in check_corrections if g.mtype(y) == MeasurementType.Y]) != set([y for y in check_odd_nh if g.mtype(y) == MeasurementType.Y]):
+            print("A Y-measured vertex in the correction set of",v," does not occur in the odd neighborhood of the correction set or vice versa")
+            return False
+    return True         
+
 def check_focussed_property(g: GraphMBQC, flow: Flow):
     """Checks if a given flow is focussed in the sense of Def 4.3. in https://arxiv.org/pdf/2109.05654.pdf"""
     outputs = set([list(g.neighbors(output))[0] for output in g.outputs()])
@@ -382,7 +401,7 @@ def check_focussed_property(g: GraphMBQC, flow: Flow):
             print("A vertex in the correction set of",v,"is not measured in XY, X or Y plane")
             return False
         #FZ
-        to_check2 = get_odd_nh(g, corrections).difference(outputs).difference(set([v])).difference(set(g.inputs()))
+        to_check2 = get_odd_nh(g, corrections).difference(set([v]))
         if not all([g.mtype(w) in [MeasurementType.XZ, MeasurementType.YZ, MeasurementType.Y, MeasurementType.Z] for w in to_check2]):
             print("A vertex in the odd neighborhood of the correction set of",v,"is not measured in XZ, YZ, Y or Z plane")
             return False
@@ -397,8 +416,7 @@ def check_focussed_property(g: GraphMBQC, flow: Flow):
 
 def check_pauli_flow(g: GraphMBQC, flow: Flow):
     """Checks if a given pauli flow is correct (According Def 4.1 in https://arxiv.org/pdf/2109.05654.pdf"""
-    outputs = set([list(g.neighbors(output))[0] for output in g.outputs()])
-    for u in set(flow[0].keys()).difference(outputs):
+    for u in g.non_outputs():
         corrections = flow[0][u]
         odd_nh = get_odd_nh(g, corrections)
         u_order = flow[1][u]
@@ -450,8 +468,7 @@ def check_pauli_flow(g: GraphMBQC, flow: Flow):
 
 def check_pauli_flow_kashefi(g: GraphMBQC, flow: Flow):
     """Checks if a given pauli flow is correct (According to Def 5 in https://iopscience.iop.org/article/10.1088/1367-2630/9/8/250"""
-    outputs = set([list(g.neighbors(output))[0] for output in g.outputs()])
-    for i in set(flow[0].keys()).difference(outputs):
+    for i in g.non_outputs():
         corrections = flow[0][i]
         odd_nh = get_odd_nh(g, corrections)
         i_order = flow[1][i]
@@ -515,16 +532,12 @@ def check_d_corrector(g: GraphMBQC, u: VT, v: VT, d: Set[VT]):
 
 def check_pauli_flow_mhalla(g: GraphMBQC, flow: Flow):
     """check pauli flow according to Definition 8 in https://arxiv.org/pdf/2207.09368.pdf"""
-    outputs = set([list(g.neighbors(output))[0] for output in g.outputs()])
-    non_outputs = set(flow[0].keys()).difference(outputs)
-    for u,v in itertools.product(non_outputs,non_outputs):
+    for u,v in itertools.product(g.non_outputs(),g.non_outputs()):
         if check_d_corrector(g,u,v,flow[0][u]):
             if not flow[1][u] > flow[1][v]:
                 print("pauli flow error on vertices ",u,v,flow[0][u])
                 return False
     return True
-
-# def get_gl_inputs(g:GraphMBQC):
 
 
 def pauli_lambda(g: GraphMBQC, vertex: VT, pauli: MeasurementType) -> Set[VT]:

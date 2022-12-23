@@ -52,6 +52,9 @@ class GraphMBQC(GraphS):
     def non_outputs(self):
         return set(self.mvertices()).difference(set(self.moutputs()))
 
+    def is_pauli(self, v):
+        return self.mtype(v) in [MeasurementType.X, MeasurementType.Y, MeasurementType.Z]
+
     def copy(self, adjoint:bool=False):
         g = GraphMBQC()
         g.track_phases = self.track_phases

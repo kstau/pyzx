@@ -1,12 +1,12 @@
 from .graph.base import BaseGraph, VT, ET
 from .graph.graph_mbqc import GraphMBQC
 from typing import Dict, Set, List
-from .utils import MeasurementType, EdgeType, insert_identity
+from .utils import MeasurementType, EdgeType, insert_identity, VertexType
 from .circuit import Circuit
 from .extract import graph_to_swaps, bi_adj
 from .linalg import CNOTMaker
 from .flow_rules import lcomp, pivot
-from .flow import Flow, get_odd_nh, focus, identify_pauli_flow
+from .flow import Flow, get_odd_nh, focus, identify_pauli_flow, identify_pauli_flow2
 from .simplify import clifford_simp
 from fractions import Fraction
 import itertools
@@ -14,7 +14,7 @@ import itertools
 #debug
 from .tensor import compare_tensors
 from .drawing import draw
-from .flow import check_focussed_property, check_pauli_flow
+from .flow import check_focussed_property, check_pauli_flow, check_focussed_2
 
 def extract_from_causal_flow(g: BaseGraph[VT, ET]) -> Circuit:
     """Extracts a circuit from graph-like diagrams with causal flow"""
@@ -125,9 +125,14 @@ def extract_from_pauli_flow(g: GraphMBQC) -> Circuit:
     circuit = Circuit(len(g.outputs())) 
     pauli_flow = identify_pauli_flow(g)
     focus(g, pauli_flow)
+    pauli_flow2 = identify_pauli_flow2(g)
+    focus(g, pauli_flow2)
+    print("pauli flow 2:",pauli_flow2)
+    print(check_pauli_flow(g, pauli_flow2))
+    print(check_focussed_2(g, pauli_flow2))
     print("focussed pauli flow:",pauli_flow)
-    assert(check_focussed_property(g, pauli_flow))
-    assert(check_pauli_flow(g, pauli_flow))
+    print(check_pauli_flow(g, pauli_flow))
+    print(check_focussed_2(g, pauli_flow))
     g_orig = g.copy()
 
     frontier: Dict[int,VT] = init_frontier(g, circuit)
@@ -335,19 +340,31 @@ def get_primary_extraction_string(g: GraphMBQC, v: VT, flow: Flow, frontier: Dic
 
     return extraction_string
 
+def calculate_extraction_string_sign2(g: GraphMBQC, v: VT, flow: Flow):
+    p_v = flow[0][v]
+    odd_n = get_odd_nh(g, p_v)
+    # count = len([x for x in p_v.intersection(odd_n) if g.mtype(x) != MeasurementType.Y])
+    count = len([x for x in p_v.intersection(odd_n).intersection(g.moutputs())])
+    count2 = len([x for x in p_v.union(odd_n).intersection(g.moutputs()) if g.is_pauli(x) and get_measurement_angle(g,x) == 1])
+    print("vertex",v,count,count2)
+    print("all x ",len(p_v),"all xz",len(p_v.intersection(odd_n)),"all z",len(odd_n))
+    count += count2
+    return 1 if count % 2 == 0 else -1
+
 def calculate_extraction_string_sign(g: GraphMBQC, v: VT, flow: Flow):
     """Calculates extraction string sign as in Lemma C.2. of https://arxiv.org/pdf/2109.05654.pdf"""
     a = 0 # How many vertices in the correction set are connected?
-    corrections = list(flow[0][v])
+    corrections = list(flow[0][v].difference(g.moutputs())) #Excluding the outputs here seems to make XY,X,Y,Z extractions work
     for i, w in enumerate(corrections):
         for x in corrections[i:]:
             if g.connected(w,x):
                 a += 1
-    b = len(flow[0][v].intersection(get_odd_nh(g,flow[0][v])))#/2 #Y vertices?
+    b = len(flow[0][v].intersection(get_odd_nh(g,flow[0][v])))/2 #Y vertices?
     c1 = flow[0][v].union(get_odd_nh(g,flow[0][v])) 
     c2 = [w for w in g.non_outputs() if g.mtype(w) in [MeasurementType.X, MeasurementType.Y, MeasurementType.Z] and get_measurement_angle(g,w) == 1] #or 3/2 for Y?
     c = len(c1.intersection(set(c2))) # Paulis?
-    d = 1 if g.mtype(v) == MeasurementType.YZ else 0 #Additional phase flip of YZ vertices
+    d = 1 if g.mtype(v) == MeasurementType.XZ else 0 #maybe
+    # d = 1 if g.mtype(v) == MeasurementType.YZ else 0 #Additional phase flip of YZ vertices
 
     # Alternative but also unsuccessful variants
     # d = 0
@@ -382,7 +399,7 @@ def get_measurement_angle(g: GraphMBQC, v: VT):
     elif mt == MeasurementType.X:
         return 0 if g.phase(v) == 0 else 1
     elif mt == MeasurementType.Y:
-        return 1 if (g.phase(v) - Fraction(1,2)) == 0 else 0
+        return 0 if (g.phase(v) - Fraction(1,2)) == 0 else 1
     elif mt == MeasurementType.Z:
         return 0 if g.phase(g.effect(v)) == 0 else 1
     else:
@@ -391,10 +408,7 @@ def get_measurement_angle(g: GraphMBQC, v: VT):
 
 def extract_pauli_gadget(g: GraphMBQC, v: VT, flow: Flow, circuit: Circuit, frontier: Dict[int,VT]):
     extraction_string = get_primary_extraction_string(g, v, flow, frontier)
-    # sign = calculate_extraction_string_sign(g, v, flow)
-    sign = calculate_extraction_string_sign_zx(g,v)
-    
-    # print(v, extraction_string)
+
     for qubit, extraction in enumerate(extraction_string):
         if extraction == 'X':
             circuit.add_gate("HAD", qubit)
@@ -409,7 +423,11 @@ def extract_pauli_gadget(g: GraphMBQC, v: VT, flow: Flow, circuit: Circuit, fron
             last_non_identity = qubit
     
     phase_vertex = v if g.mtype(v) == MeasurementType.XY else g.effect(v)
+    sign = calculate_extraction_string_sign(g,v,flow)# test_extraction_string(g, v, g.phase(phase_vertex), extraction_string)
+    # if sign != test_extraction_string(g, v, g.phase(phase_vertex), extraction_string):
+    #     print("ERROR in sign calculation for vertex:",v)
     print("extraction string for ",v,":",''.join(extraction_string)," angle:",g.phase(phase_vertex) if sign == 1 else -g.phase(phase_vertex))
+    print("p(",v,")=",flow[0][v],"oddn(p(",v,"))=",get_odd_nh(g,flow[0][v]))
     circuit.add_gate("ZPhase",last_non_identity, g.phase(phase_vertex) if sign == 1 else -g.phase(phase_vertex)) #Another flip because we need to implement exp(ia) instead of exp(-ia)
     g.set_phase(phase_vertex,0)
 
@@ -428,6 +446,81 @@ def extract_pauli_gadget(g: GraphMBQC, v: VT, flow: Flow, circuit: Circuit, fron
 
 
 #debug
+
+def convert_to_extractable_graph(g: GraphMBQC):
+    for output in g.outputs():
+        n = list(g.neighbors(output))[0]
+        x_vertex = g.add_vertex(VertexType.Z, g.qubit(n), g.row(n)+0.5,0)
+        if g.edge_type(g.edge(output,n)) == EdgeType.HADAMARD:
+            g.add_edge(g.edge(x_vertex, output), EdgeType.SIMPLE)
+        else:
+            g.add_edge(g.edge(x_vertex, output), EdgeType.HADAMARD)
+        
+        g.add_edge(g.edge(n, x_vertex), EdgeType.HADAMARD)
+        g.remove_edge(g.edge(output,n))
+    
+def assign_pauli_xy_measurements(g: GraphMBQC):
+    for v in g.vertices():
+        if not v in g.inputs() and not v in g.outputs():
+            if g.phase(v) == Fraction(1,1) or g.phase(v) == 0:
+                g.set_mtype(v, MeasurementType.X)
+            elif g.phase(v) == Fraction(1,2) or g.phase(v) == Fraction(3,2):
+                g.set_mtype(v, MeasurementType.Y)
+            else:
+                g.set_mtype(v, MeasurementType.XY)
+
+
+def test_extraction_string(g: GraphMBQC, v: VT, angle: Fraction, extraction_string):
+    g_orig = g.copy()
+    g_temp = g.copy()
+    valid_extraction_sign = 1
+    circuit = Circuit(len(g_temp.outputs()))
+    for sign in [1,-1]:
+        for qubit, extraction in enumerate(extraction_string):
+            if extraction == 'X':
+                circuit.add_gate("HAD", qubit)
+            elif extraction == 'Y':
+                circuit.add_gate("XPhase", qubit, -Fraction(1,2))
+
+        last_non_identity = None
+        for qubit, extraction in enumerate(extraction_string):
+            if extraction != 'I':
+                if last_non_identity != None:
+                    circuit.add_gate("CNOT",last_non_identity, qubit)
+                last_non_identity = qubit
+        
+        phase_vertex = v if g_temp.mtype(v) == MeasurementType.XY else g.effect(v)
+        circuit.add_gate("ZPhase",last_non_identity, sign*angle)
+        # print("add zphase on ",last_non_identity, g.phase(phase_vertex) if sign == -1 else -g.phase(phase_vertex))
+        g_temp.set_phase(phase_vertex,0)
+
+        last_non_identity = None
+        for qubit, extraction in reversed(list(enumerate(extraction_string))):
+            if extraction != 'I':
+                if last_non_identity != None:
+                    circuit.add_gate("CNOT",qubit, last_non_identity)
+                last_non_identity = qubit
+        
+        for qubit, extraction in reversed(list(enumerate(extraction_string))):
+            if extraction == 'X':
+                circuit.add_gate("HAD", qubit)
+            elif extraction == 'Y':
+                circuit.add_gate("XPhase", qubit, Fraction(1,2))
+
+        test_graph = circuit.copy()
+        test_graph.gates = list(reversed(test_graph.gates))
+        test_graph = test_graph.to_graph()
+        if compare_tensors(g_orig, g_temp+test_graph):
+            print(extraction_string,sign,angle)
+            valid_extraction_sign = sign
+            # import pdb
+            # pdb.set_trace()
+            # return True
+        g_temp = g_orig.copy()
+        circuit = Circuit(len(g_temp.outputs()))
+    return valid_extraction_sign
+    # print("No pauli gadget with angle",angle,"could be extracted!")
+    # return False        
 
 def test_all_extraction_strings(g: GraphMBQC, v: VT, angle: Fraction):
     """Iterates through all possible Pauli gadgets over all wires and checks whether extracting one of them preserves the linear map 
