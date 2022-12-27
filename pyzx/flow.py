@@ -204,8 +204,9 @@ def identify_gflow(g: GraphMBQC) -> Flow:
             processed.update(correct)
             depth += 1
 
-def identify_pauli_flow(g: GraphMBQC) -> Flow:
-    """Compute maximally delayed pauli flow as in https://arxiv.org/pdf/2109.05654.pdf"""
+def identify_pauli_flow_tket(g: GraphMBQC) -> Flow:
+    """Compute maximally delayed pauli flow as in https://arxiv.org/pdf/2109.05654.pdf
+    Based on tket implementation. Faster, but pauli flow may be invalid if x or y measurements are exclusively in V^XZ or V^YZ"""
     res: Flow = (dict(), dict())
     solved = []
     correctors = []
@@ -223,7 +224,7 @@ def identify_pauli_flow(g: GraphMBQC) -> Flow:
     depth = 1
 
     while True:
-        new_corrections = solve_pauli_correctors(g, solved, correctors)
+        new_corrections = solve_pauli_correctors_tket(g, solved, correctors)
         if not new_corrections:
             break
         for v,c_s in new_corrections.items():
@@ -238,7 +239,7 @@ def identify_pauli_flow(g: GraphMBQC) -> Flow:
     return res 
 
 
-def solve_pauli_correctors(g: GraphMBQC, solved: list[int], correctors: list[int]):
+def solve_pauli_correctors_tket(g: GraphMBQC, solved: list[int], correctors: list[int]):
     """Helper function for pauli flow identification"""
     to_solve = []
     unsolved_ys = []
@@ -315,6 +316,7 @@ def solve_pauli_correctors(g: GraphMBQC, solved: list[int], correctors: list[int
         if not fail:
             v = to_solve[i]
             if g.mtype(v) in [MeasurementType.XZ, MeasurementType.YZ, MeasurementType.Z]:
+                # May be needed for some X and Y measurements as well causing the algorithm to return an invalid pauli flow.
                 c_i.add(v)
             solved_flow[v] = c_i
 
@@ -365,7 +367,7 @@ def focus(g: GraphMBQC, flow: Flow) -> Flow:
                     new_c.add(w)
             flow[0][v] = new_c
 
-def get_odd_nh(g: GraphMBQC, vertex_set):
+def get_odd_nh(g: GraphMBQC, vertex_set) -> Set:
     """Calculates Odd Neighborhood as in http://arxiv.org/abs/1610.02824v2"""
     odd_n = set()
     for v in vertex_set:
@@ -434,6 +436,8 @@ def check_pauli_flow(g: GraphMBQC, flow: Flow):
         ys_1 = set([v for v in corrections if g.mtype(v) == MeasurementType.Y and flow[1][v] >= u_order and v != u])
         ys_2 = set([v for v in odd_nh if g.mtype(v) == MeasurementType.Y and flow[1][v] >= u_order and v != u])
         if not ys_1 == ys_2:
+            import pdb 
+            pdb.set_trace()
             print("A Y-measured vertex in the correction set of",u," does not occur in the odd neighborhood of the correction set or vice versa.")
             return False
         #lXY, XZ, YZ
@@ -574,7 +578,7 @@ def get_witness_search_cases(g: GraphMBQC, vertex: VT):
         cases.append(MeasurementType.YZ)
     return cases
 
-def solve_pauli_correctors2(g: GraphMBQC, vertex: VT, correctors: Set[VT]):
+def solve_pauli_correctors(g: GraphMBQC, vertex: VT, correctors: Set[VT]):
     possible_witnesses = get_possible_witnesses(g, vertex, correctors)
     remain_corrected = get_remain_corrected(g, vertex, correctors)
     y_check_vertices = get_y_check_vertices(g, vertex, correctors)
@@ -607,14 +611,18 @@ def solve_pauli_correctors2(g: GraphMBQC, vertex: VT, correctors: Set[VT]):
                 if n in y_check_vertices:
                     s_vec.data[len(remain_corrected) + y_check_vertices.index(n)][0] = 1
 
-        x_k = get_gauss_solution(m, s_vec, cnot_maker.cnots) # assuming that even we match two witness cases the sets are the same
+        x_k = get_gauss_solution(m, s_vec, cnot_maker.cnots) # assuming that even if we match two witness cases the sets are the same
 
         if x_k:
-            return {possible_witnesses[i] for i in range(x_k.rows()) if x_k.data[i][0]}
+            witness_set = {possible_witnesses[i] for i in range(x_k.rows()) if x_k.data[i][0]}
+            if m_plane in [MeasurementType.XZ, MeasurementType.YZ]: #because x_k aka. K is p(v)\v, we need to add v in the XZ and YZ case.
+                witness_set.add(vertex)
+            check_witness_set(g, vertex, m_plane, witness_set, correctors)
+            return witness_set
     
     return None
             
-def identify_pauli_flow2(g: GraphMBQC) -> Flow:
+def identify_pauli_flow(g: GraphMBQC) -> Flow:
     """Alternative version for pauli flow identification corresponding more to the paper version, 
     i.e. gaussian eliminations are applied sequentially for all candidates (solving M*X_k = 'vector' instead of M*X_k = 'matrix')
     expected to be slower in runtime"""
@@ -633,10 +641,8 @@ def identify_pauli_flow2(g: GraphMBQC) -> Flow:
     while True:
         temp_solved = set()
         for vertex in g.mvertices().difference(solved):
-            witness_set = solve_pauli_correctors2(g, vertex, correctors)
+            witness_set = solve_pauli_correctors(g, vertex, correctors)
             if witness_set:
-                if g.mtype(vertex) in [MeasurementType.XZ, MeasurementType.YZ, MeasurementType.Z]:
-                    witness_set.add(vertex) #Not mentioned in paper but seems to be necessary ?
                 res[0][vertex] = witness_set
                 res[1][vertex] = k
                 temp_solved.add(vertex)
@@ -652,6 +658,23 @@ def identify_pauli_flow2(g: GraphMBQC) -> Flow:
 
     
 ## For Testing, may be outdated
+
+def check_witness_set(g: GraphMBQC, vertex: VT, measurement: MeasurementType, witness_set: Set[VT], corrections: Set[VT]):
+    if measurement == MeasurementType.XY:
+        if witness_set.intersection(pauli_lambda(g, vertex, MeasurementType.Y)).difference(corrections) != get_odd_nh(g, witness_set).intersection(pauli_lambda(g, vertex, MeasurementType.Y)).difference(corrections):
+            print("error in lower block of XY matrix")
+        if get_odd_nh(g, witness_set).difference(corrections.union(pauli_lambda(g, vertex, MeasurementType.Y)).union(pauli_lambda(g, vertex, MeasurementType.Z))) != set([vertex]):
+            print("error in upper block of XY matrix")
+    elif measurement == MeasurementType.XZ:
+        if witness_set.intersection(pauli_lambda(g, vertex, MeasurementType.Y)).difference(corrections) != get_odd_nh(g, witness_set.union(set([vertex]))).intersection(pauli_lambda(g, vertex, MeasurementType.Y)).difference(corrections):
+            print("error in lower block of XZ matrix")
+        if get_odd_nh(g, witness_set.union(set([vertex]))).difference(corrections.union(pauli_lambda(g, vertex, MeasurementType.Y)).union(pauli_lambda(g, vertex, MeasurementType.Z))) != set([vertex]):
+            print("error in upper block of XZ matrix")
+    elif measurement == MeasurementType.YZ:
+        if witness_set.intersection(pauli_lambda(g, vertex, MeasurementType.Y)).difference(corrections) != get_odd_nh(g, witness_set.union(set([vertex]))).intersection(pauli_lambda(g, vertex, MeasurementType.Y)).difference(corrections):
+            print("error in lower block of YZ matrix")
+        if get_odd_nh(g, witness_set.union(set([vertex]))).difference(corrections.union(pauli_lambda(g, vertex, MeasurementType.Y)).union(pauli_lambda(g, vertex, MeasurementType.Z))) != set():
+            print("error in upper block of YZ matrix")
 
 def get_odd_neighbourhood(g: BaseGraph[VT,ET], vertex_set):
   all_neighbors = set()
