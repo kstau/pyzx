@@ -125,11 +125,20 @@ def extract_from_pauli_flow(g: GraphMBQC) -> Circuit:
     """Extracts a circuit from graph-like diagrams with pauli flow.
     Currently limited to diagrams where the number of inputs is equal to the number of outputs"""
     circuit = Circuit(len(g.outputs())) 
-    pauli_flow = identify_pauli_flow(g)
-    focus(g, pauli_flow)
 
     frontier: Dict[int,VT] = init_frontier(g, circuit)
-    
+
+    #process frontier so that the output vertices can be X measured
+    extract_rzs(g, frontier, circuit) #not really necessary, but why not...
+    extract_czs(g, frontier, circuit)
+    for v in frontier.values():
+        g.set_mtype(v, MeasurementType.X)
+
+    pauli_flow = identify_pauli_flow(g)
+    if not pauli_flow:
+        raise Exception("Graph has no pauli flow")
+    focus(g, pauli_flow)
+
     order = dict()
     for v, d in pauli_flow[1].items():
         if d in order.keys():
@@ -155,7 +164,6 @@ def extract_from_pauli_flow_generic(g: BaseGraph) -> Circuit:
     Currently limited to diagrams where the number of inputs is equal to the number of outputs.
     Works for any backend"""
     g_mbqc = g.copy(backend='mbqc')
-    convert_to_extractable_graph(g_mbqc)
     relabel_pauli_measurements(g_mbqc)
     return extract_from_pauli_flow(g_mbqc)
 
@@ -427,6 +435,9 @@ def relabel_pauli_measurements(g: GraphMBQC):
         else:
             g.set_mtype(v, MeasurementType.XY)
 
+
+#debugging stuff, may be outdated
+
 def convert_to_extractable_graph(g: GraphMBQC):
     """Converts diagram to equivalent one where all outputs are measured on the X axis"""
     for output in g.outputs():
@@ -442,10 +453,6 @@ def convert_to_extractable_graph(g: GraphMBQC):
         
         g.add_edge(g.edge(n, x_vertex), EdgeType.HADAMARD)
         g.remove_edge(g.edge(output,n))    
-
-
-
-#debugging stuff, may be outdated
     
 def assign_pauli_xy_measurements(g: GraphMBQC):
     for v in g.vertices():
