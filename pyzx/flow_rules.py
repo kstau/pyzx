@@ -156,3 +156,10 @@ def yz_fusion(g: GraphMBQC, vertex: VT):
     g.remove_vertices([vertex,effect])
     return True
 
+def neighbor_unfusion(g: GraphMBQC, vertex: VT, neighbor: VT):
+    """neighbor unfusion rule as in https://elib.dlr.de/188470/1/QPL_2022_paper_10.pdf"""
+    nv = list(set(g.neighbors(vertex)).difference(set([neighbor])))
+    z1 = z_insert(g, [vertex] + nv)
+    lcomp(g, z1)
+    z2 = z_insert(g, [z1] + nv)
+    lcomp(g, z2)
