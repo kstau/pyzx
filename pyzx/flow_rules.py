@@ -6,12 +6,16 @@ from .utils import MeasurementType, VertexType, EdgeType, insert_identity, toggl
 from fractions import Fraction
 from .drawing import draw
 
+from .tensor import compare_tensors
 """Pauli flow preserving rewrite rules for graph-like diagrams"""
 
-def lcomp(g: GraphMBQC, v: VT) -> bool:
+
+
+def lcomp(g: GraphMBQC, v: VT):
     """
     Graph theoretic local complementation on graph-like diagram
     This method does not eliminate Clifford spiders, but introduces XZ and YZ measurement effects as in https://arxiv.org/pdf/2003.01664.pdf
+    Similar to the classic rewrite rule this rule would also work with every phase addition inverted, however we ommitted that due to simplicity
     g: A MBQCGraph instance
     v: The vertex to complement
     """
@@ -28,26 +32,43 @@ def lcomp(g: GraphMBQC, v: VT) -> bool:
             else:
                 g.add_edge(g.edge(n,n2), EdgeType.HADAMARD)
         
-        # set new measurement plane and angle for neighbors
-        g.set_mtype(n, {
-            MeasurementType.YZ: MeasurementType.XZ,
-            MeasurementType.XZ: MeasurementType.YZ,
-            MeasurementType.X: MeasurementType.Y,
-            MeasurementType.Y: MeasurementType.X,
-            MeasurementType.Z: MeasurementType.Z
-        }.get(g.mtype(n), MeasurementType.XY))
-        n_phase = g.phase(n)
-        g.set_phase(n, {
-            MeasurementType.XY: n_phase + Fraction(1,2),
-            MeasurementType.XZ: Fraction(1,2),
-            MeasurementType.X: n_phase + Fraction(1,2),
-            MeasurementType.Y: n_phase + Fraction(1,2),
-        }.get(g.mtype(n), 0))
-        if g.mtype(n) in [MeasurementType.YZ]:
-            e = g.effect(n)
-            g.set_phase(e, -g.phase(e))
+        lcomp_update_neighbor(g, v, n)
     
-    # set new measurement plane of v
+    lcomp_update_vertex(g, v)
+
+    return True
+
+def lcomp_update_vertex(g: GraphMBQC, v: VT):
+    """Updates phase and measurement type of a complemented vertex"""
+    phase_to_add = -Fraction(1,2)
+
+    if g.mtype(v) == MeasurementType.XZ and g.phase(v) == Fraction(3,2):
+        phase_to_add = Fraction(1,2)
+
+    elif g.mtype(v) == MeasurementType.YZ and g.phase(v) == 0:
+        phase_to_add = Fraction(1,2)
+
+    if g.mtype(v) in [MeasurementType.XY, MeasurementType.Y]:
+        #create effect spider
+        newv = g.add_vertex(VertexType.Z, -1, g.row(v), g.phase(v) + phase_to_add)
+        g.add_edge(g.edge(v, newv), EdgeType.HADAMARD)
+        g.set_mtype(newv, MeasurementType.EFFECT)
+
+        if g.mtype(v) == MeasurementType.XY:
+            g.set_phase(v, Fraction(1,2))
+            g.set_phase(newv, -g.phase(newv))
+        else:
+            g.set_phase(v, 0)
+    
+    elif g.mtype(v) in [MeasurementType.XZ, MeasurementType.Z]:
+        # remove effect spider
+        g.set_phase(v, g.phase(g.effect(v))+phase_to_add)
+        g.remove_vertex(g.effect(v))
+    
+    elif g.mtype(v) == MeasurementType.YZ: 
+        g.set_phase(g.effect(v), g.phase(g.effect(v))+phase_to_add)
+
+    #set new measurement plane/axis
     g.set_mtype(v, {
         MeasurementType.XY: MeasurementType.XZ,
         MeasurementType.XZ: MeasurementType.XY,
@@ -56,39 +77,20 @@ def lcomp(g: GraphMBQC, v: VT) -> bool:
         MeasurementType.Z: MeasurementType.Y
     }.get(g.mtype(v), MeasurementType.YZ))
 
-    if g.mtype(v) in [MeasurementType.XZ, MeasurementType.Z]:
-        phase_add = Fraction(1,2) #if g.mtype(v) == MeasurementType.Z else 
-        # create effect spider
-        newv = None
-        # check if we can write effect on output
-        for n in g.neighbors(v): 
-            if n in g.outputs():
-                newv = insert_identity(g, v, n)
-                # lcomp introduces Hadamard on output wire
-                g.set_edge_type(g.edge(newv, n), toggle_edge(g.edge_type(g.edge(newv, n))))
 
-                g.set_phase(newv, g.phase(v)+phase_add)
-                break
-        # if not: add effect spider
-        if not newv:
-            newv = g.add_vertex(VertexType.Z, -1, g.row(v), g.phase(v)+phase_add)
-            g.add_edge(g.edge(v, newv), EdgeType.HADAMARD)
-            
-        g.set_mtype(newv, MeasurementType.EFFECT)
-
-        # update phase of v
-        g.set_phase(v, Fraction(1,2) if g.mtype(v) == MeasurementType.XZ else 0)
-    
-    elif g.mtype(v) in [MeasurementType.XY, MeasurementType.Y]:
-        e = g.effect(v)
-        g.set_phase(v, - g.phase(e) + Fraction(1,2))
-        g.remove_vertex(e)
-    
-    elif g.mtype(v) == MeasurementType.YZ:
-        e = g.effect(v)
-        g.set_phase(e, g.phase(e)-Fraction(1,2))
-    
-    return True
+def lcomp_update_neighbor(g: GraphMBQC, v: VT, n: VT):
+    """Updates phase and measurement type of a neighbor of a complemented vertex"""
+    if g.mtype(v) == MeasurementType.XZ and g.phase(v) == Fraction(3,2):
+        g.add_to_phase(n,Fraction(1,2))
+    else:
+        g.add_to_phase(n,-Fraction(1,2))
+    g.set_mtype(n, {
+        MeasurementType.YZ: MeasurementType.XZ,
+        MeasurementType.XZ: MeasurementType.YZ,
+        MeasurementType.X: MeasurementType.Y,
+        MeasurementType.Y: MeasurementType.X,
+        MeasurementType.Z: MeasurementType.Z
+    }.get(g.mtype(n), MeasurementType.XY))
 
 
 def pivot(g: GraphMBQC, u: VT, v: VT) -> bool:
@@ -163,3 +165,11 @@ def neighbor_unfusion(g: GraphMBQC, vertex: VT, neighbor: VT):
     lcomp(g, z1)
     z2 = z_insert(g, [z1] + nv)
     lcomp(g, z2)
+
+def spider_split(g: GraphMBQC, vertex: VT, split_neighbors: List[VT]):
+    """Removes an arbitrary number of neighbors from a spider by using some sort of generalized neighbor unfusion rule"""
+    z1 = z_insert(g, [vertex] + split_neighbors)
+    lcomp(g, z1)
+    z2 = z_insert(g, [z1] + split_neighbors)
+    lcomp(g, z2)
+    return z2

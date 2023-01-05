@@ -5,6 +5,8 @@ from .graph_s import GraphS
 
 from ..utils import MeasurementType, VertexType
 
+from fractions import Fraction
+
 #TODO: Think about making measurement plane a vdata attribute of GraphS instead of creating a new class
 class GraphMBQC(GraphS):
     backend = 'mbqc'
@@ -54,6 +56,28 @@ class GraphMBQC(GraphS):
 
     def is_pauli(self, v):
         return self.mtype(v) in [MeasurementType.X, MeasurementType.Y, MeasurementType.Z]
+    
+    def interior_vertices(self):
+        return self.non_inputs().difference(self.moutputs())
+    
+    def get_measurement_angle(self, v: VT):
+        """Helper function for determining measurement angle from ZX vertex"""
+        mt = self.mtype(v)
+        if mt in [MeasurementType.XY]:
+            return -self.phase(v)
+        elif mt == MeasurementType.XZ:
+            return self.phase(self.effect(v))
+        elif mt == MeasurementType.YZ:
+            return self.phase(self.effect(v))
+        elif mt == MeasurementType.X:
+            return 0 if self.phase(v) == 0 else 1
+        elif mt == MeasurementType.Y:
+            return 1 if (self.phase(v) - Fraction(1,2)) == 0 else 0
+        elif mt == MeasurementType.Z:
+            return 0 if self.phase(self.effect(v)) == 0 else 1
+        else:
+            print("Error in get_measurement_angle; vertex has no measurement plane")
+            return None
 
     def copy(self, adjoint:bool=False):
         g = GraphMBQC()

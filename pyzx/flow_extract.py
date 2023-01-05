@@ -5,7 +5,7 @@ from .utils import MeasurementType, EdgeType, insert_identity, VertexType
 from .circuit import Circuit
 from .extract import graph_to_swaps, bi_adj
 from .linalg import CNOTMaker
-from .flow_rules import lcomp, pivot
+from .flow_rules import lcomp, pivot, z_delete
 from .flow import Flow, get_odd_nh, focus, identify_pauli_flow
 from .simplify import clifford_simp
 from fractions import Fraction
@@ -125,7 +125,6 @@ def extract_from_pauli_flow(g: GraphMBQC) -> Circuit:
     """Extracts a circuit from graph-like diagrams with pauli flow.
     Currently limited to diagrams where the number of inputs is equal to the number of outputs"""
     circuit = Circuit(len(g.outputs())) 
-
     frontier: Dict[int,VT] = init_frontier(g, circuit)
 
     #process frontier so that the output vertices can be X measured
@@ -156,11 +155,11 @@ def extract_from_pauli_flow(g: GraphMBQC) -> Circuit:
     clifford_simp(g)
 
     circuit2 = extract_from_xy_gflow(g.copy()) #TODO: Pauli flow allows for patterns where |I| != |O|
-
+    # assert(compare_tensors(g_orig,circuit2 + circuit))
     return circuit2 + circuit
 
 def extract_from_pauli_flow_generic(g: BaseGraph) -> Circuit:
-    """Extracts a circuit from graph-like diagrams with pauli flow.
+    """Extracts a circuit from a graph-like diagram with pauli flow.
     Currently limited to diagrams where the number of inputs is equal to the number of outputs.
     Works for any backend"""
     g_mbqc = g.copy(backend='mbqc')
@@ -332,43 +331,23 @@ def get_primary_extraction_string(g: GraphMBQC, v: VT, flow: Flow, frontier: Dic
 
 def calculate_extraction_string_sign(g: GraphMBQC, v: VT, flow: Flow):
     """Calculates extraction string sign as in Lemma C.2. of https://arxiv.org/pdf/2109.05654.pdf
-    Two modifications are made compared to the paper:
-    1: YZ vertices do not need an additional phase flip
-    2. Edges between vertices in the correction set are only counted if they are not adjacent to an output vertex"""
+    Due to differenct encodings XZ vertices get an additional phase flip instead of YZ vertices"""
     a = 0 # How many vertices in the correction set are connected?
-    corrections = list(flow[0][v].difference(g.moutputs()))
+    corrections = list(flow[0][v])
     for i, w in enumerate(corrections):
         for x in corrections[i:]:
             if g.connected(w,x):
                 a += 1
-    b = len(flow[0][v].intersection(get_odd_nh(g,flow[0][v])))/2 #XZ corrections divided by 2
+    b = len(flow[0][v].intersection(get_odd_nh(g,flow[0][v])))/2 #X,Z corrections divided by 2
     c1 = flow[0][v].union(get_odd_nh(g,flow[0][v])) 
-    c2 = [w for w in g.non_outputs() if g.mtype(w) in [MeasurementType.X, MeasurementType.Y, MeasurementType.Z] and get_measurement_angle(g,w) == 1]
+    c2 = [w for w in g.non_outputs() if g.mtype(w) in [MeasurementType.X, MeasurementType.Y, MeasurementType.Z] and g.get_measurement_angle(w) == 1]
     c = len(c1.intersection(set(c2))) # Pauli Pi vertices
+    d = 1 if g.mtype(v) == MeasurementType.XZ else 0 #phase flip because bra XY and YZ inverts measurement angle
 
-    return 1 if (a+b+c) % 2 == 0 else -1
-
-
-def get_measurement_angle(g: GraphMBQC, v: VT):
-    """Helper function for determining measurement angle from ZX vertex"""
-    mt = g.mtype(v)
-    if mt in [MeasurementType.XY]:
-        return -g.phase(v)
-    elif mt == MeasurementType.XZ:
-        return g.phase(g.effect(v))
-    elif mt == MeasurementType.YZ:
-        return -g.phase(g.effect(v))
-    elif mt == MeasurementType.X:
-        return 0 if g.phase(v) == 0 else 1
-    elif mt == MeasurementType.Y:
-        return 0 if (g.phase(v) - Fraction(1,2)) == 0 else 1
-    elif mt == MeasurementType.Z:
-        return 0 if g.phase(g.effect(v)) == 0 else 1
-    else:
-        print("Error in get_measurement_angle; vertex has no measurement plane")
-        return None
+    return 1 if (a+b+c+d) % 2 == 0 else -1
 
 def extract_pauli_gadget(g: GraphMBQC, v: VT, flow: Flow, circuit: Circuit, frontier: Dict[int,VT]):
+    """extracts a planar measurement as pauli gadget over the outputs"""
     extraction_string = get_primary_extraction_string(g, v, flow, frontier)
 
     for qubit, extraction in enumerate(extraction_string):
@@ -435,6 +414,80 @@ def relabel_pauli_measurements(g: GraphMBQC):
         else:
             g.set_mtype(v, MeasurementType.XY)
 
+def extract_from_pauli_flow_without_identification(g: GraphMBQC):
+    """TODO"""
+    circuit = Circuit(len(g.outputs())) 
+
+    frontier: Dict[int,VT] = init_frontier(g, circuit)
+
+    #process frontier so that the output vertices can be X measured
+    extract_rzs(g, frontier, circuit)
+    extract_czs(g, frontier, circuit)
+    for v in frontier.values():
+        g.set_mtype(v, MeasurementType.X)
+
+    # extract CZs + RZ + Hadamard until no spiders left in diagram
+    while True:
+        #RZs
+        extract_rzs(g, frontier, circuit)
+        #CZs
+        extract_czs(g, frontier, circuit)
+        # If we cannot proceed with H,RZ,CZ gate extractions remove Hadamard Wires via CNOT row additions using gaussian elimination
+        if frontier and all([len(g.neighbors(v)) > 2 for v in frontier.values()]):
+            # Get all neighbors of frontier vertices
+            frontier_neighbors = get_frontier_neighbors(g, frontier)
+            # Compute row echelon form of adjacency matrix and save row operations as CNOTs 
+            # -> because of gflow the resulting matrix has a row with only a single 1
+            m = bi_adj(g, list(frontier_neighbors), frontier.values())
+            cnot_maker = CNOTMaker()
+            m.gauss(x=cnot_maker, full_reduce=True)
+            # If there is no row with a single 1 there has to be a YZ measured spider in frontier neighbors which we can eliminate
+            if not any([sum(row) == 1 for row in m.data]):
+                eliminate_x_spider(g, frontier, frontier_neighbors, circuit)
+                eliminate_yz_spider(g, frontier, frontier_neighbors, circuit)
+                continue
+            extract_cnots(g, frontier, circuit, cnot_maker)
+
+        #Hadamards
+        new_frontier = process_frontier(g, frontier, circuit)
+        #Update frontier
+        if new_frontier: 
+            for qubit,v in new_frontier.items():
+                if v == -1:
+                    frontier.pop(qubit)
+                else:
+                    frontier[qubit] = v
+        else:
+            break
+    # reverse circuit 
+    circuit.gates = list(reversed(circuit.gates))
+    # add swaps if necessary
+    return graph_to_swaps(g, False) + circuit    
+
+def eliminate_x_spider(g: GraphMBQC, frontier: Dict[int,VT], frontier_neighbors: Set, circuit: Circuit):
+    """Finds a X measured spider which is connected to a spider in frontier and applies a pivot on them. 
+    We can then remove the X spider and the frontier spider by applying a pivot"""
+    for n in frontier_neighbors:
+        if g.mtype(n) == MeasurementType.X:
+            frontier_vertex = list(set(g.neighbors(n)).intersection(set(frontier.values())))[0]
+            pivot(g, n, frontier_vertex)
+
+            e = g.effect(frontier_vertex)
+            e_n = list(g.neighbors(e))
+            simple_wire = g.edge_type(g.edge(e,e_n[0])) == g.edge_type(g.edge(e,e_n[1]))
+            if not simple_wire:
+                qubit = list(frontier)[list(frontier.values()).index(frontier_vertex)]
+                circuit.add_gate("HAD", qubit)
+            
+            g.remove_vertex(e)
+            g.add_edge(g.edge(e_n[0],e_n[1]),EdgeType.SIMPLE)
+            z_delete(g, n)
+
+            # no measurements in frontier, because in original paper those are outputs
+            # from graph-theoretical perspective we can maybe also see the extraction of the H wire as an implicit conversion from YZ to XY?
+            g.set_mtype(frontier_vertex, MeasurementType.X) 
+
+            break
 
 #debugging stuff, may be outdated
 
