@@ -7,8 +7,8 @@ from fractions import Fraction
 from .drawing import draw
 
 from .tensor import compare_tensors
-"""Pauli flow preserving rewrite rules for graph-like diagrams"""
 
+"""Pauli flow preserving rewrite rules for graph-like diagrams"""
 
 
 def lcomp(g: GraphMBQC, v: VT):
@@ -105,15 +105,16 @@ def pivot(g: GraphMBQC, u: VT, v: VT) -> bool:
     return success
 
 def z_delete(g: GraphMBQC, vertex: VT) -> bool:
-    """Deletes a Z measured vertex from graph-like diagram"""
-    if g.mtype(vertex) == MeasurementType.Z and not any([n for n in g.neighbors(vertex) if g.type(n) != VertexType.Z]):
-        e = g.effect(vertex)
-        if g.phase(e) == 1:
-            for n in g.neighbors(vertex):
-                g.add_to_phase(n,1)
-        g.remove_vertex(e)
-        g.remove_vertex(vertex)
-        return True
+    """Deletes a Z measured vertex from graph-like diagram according to Lemma 5.4 in https://arxiv.org/pdf/2109.05654.pdf"""
+    if g.mtype(vertex) == MeasurementType.Z or (g.mtype(vertex) in [MeasurementType.XZ, MeasurementType.YZ] and g.phase(vertex) in [0,1]):
+        if not any([n for n in g.neighbors(vertex) if g.type(n) != VertexType.Z]):
+            e = g.effect(vertex)
+            if g.phase(e) == 1:
+                for n in g.neighbors(vertex):
+                    g.add_to_phase(n,1)
+            g.remove_vertex(e)
+            g.remove_vertex(vertex)
+            return True
     return False
 
 def z_insert(g: GraphMBQC, neighbors: List[VT]):
@@ -133,7 +134,7 @@ def z_insert(g: GraphMBQC, neighbors: List[VT]):
 def z_delete_all(g: GraphMBQC):
     candidates = []
     for v in g.vertices():
-        if g.mtype(v) == MeasurementType.Z:
+        if g.mtype(v) == MeasurementType.Z or (g.mtype(v) in [MeasurementType.XZ, MeasurementType.YZ] and g.phase(v) in [0,1]):
             candidates.append(v)
     for candidate in candidates:
         z_delete(g, candidate)
@@ -173,3 +174,22 @@ def spider_split(g: GraphMBQC, vertex: VT, split_neighbors: List[VT]):
     z2 = z_insert(g, [z1] + split_neighbors)
     lcomp(g, z2)
     return z2
+
+def boundary_insert(g: GraphMBQC, vertex: VT) -> VT:
+    """Inserts an X spider at the before an input or after an output vertex.
+    According to Lemma 3.7. and 3.8. of https://arxiv.org/pdf/2003.01664.pdf we can insert XY-spiders at the boundaries
+    and according to Lemma 5.1. of https://arxiv.org/pdf/2109.05654.pdf we can relabel XY-spiders with angle 0 or pi as X measurements.
+    Returns inserted vertex."""
+    #check inputs
+    boundary_vertex = set(g.neighbors(vertex)).intersection(set(g.inputs()))
+    if boundary_vertex:
+        newv = insert_identity(g, vertex, boundary_vertex.pop())
+        g.set_mtype(newv, MeasurementType.X)
+        return newv
+    #check outputs
+    boundary_vertex = set(g.neighbors(vertex)).intersection(set(g.outputs()))
+    if boundary_vertex:
+        newv = insert_identity(g, boundary_vertex.pop(), vertex)
+        g.set_mtype(newv, MeasurementType.X)
+        return newv
+    return False
